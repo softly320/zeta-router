@@ -5,25 +5,7 @@
     const W = window;
     const X = XMLHttpRequest.prototype;
 
-    /*
-     * 다시 실행하면 OFF
-     */
-    if (W[K]) {
-        W.fetch = W[K].fetch;
-        X.open = W[K].open;
-        X.send = W[K].send;
-        JSON.stringify = W[K].stringify;
-
-        delete W[K];
-
-        document
-            .getElementById('__zeta_or_router_badge__')
-            ?.remove();
-
-        alert('ZETA OpenRouter Router OFF');
-
-        return;
-    }
+    if (W[K]) return;
 
 
     const OF = W.fetch;
