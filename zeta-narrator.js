@@ -89,24 +89,27 @@ function cleanItalics(text){
   text=String(text??'');
 
   /*
-   * \*지문\*
-   * ↓
-   * *지문*
+   * \* → *
    *
-   * escaped italic 표기를 먼저 일반 표기로 통일
+   * escaped 별표를 먼저 일반 별표로 통일
    */
   text=text.replace(
-    /\\\*([^*\n]+?)\\\*/g,
-    (_,body)=>`*${body.trim()}*`
+    /\\\*/g,
+    '*'
   );
 
 
   /*
-   * *지문1* *지문2*
-   * ↓
-   * *지문1 지문2*
+   * 핵심:
    *
-   * 여러 개가 이어져 있으면 반복해서 전부 합침
+   * *지문* *지문*
+   *         ^^^
+   * 가운데 "* *"를 공백 하나로 변경
+   *
+   * 동시에 단독 "* *"도 제거됨.
+   *
+   * 반복하는 이유는 한 번 지운 뒤
+   * 새로운 "* *"가 다시 맞닿을 수도 있기 때문.
    */
   let old;
 
@@ -115,14 +118,16 @@ function cleanItalics(text){
     old=text;
 
     text=text.replace(
-      /\*([^*\n]+?)\*\s*\*([^*\n]+?)\*/g,
-      (_,a,b)=>
-        `*${a.trim()} ${b.trim()}*`
+      /\*\s+\*/g,
+      ' '
     );
 
   }while(text!==old);
 
 
+  /*
+   * 남은 공백 정리
+   */
   return text
     .replace(/\s+/g,' ')
     .trim();
