@@ -3,7 +3,6 @@
 
 const KEY='__ZETA_TOOLBOX_LAUNCHER__';
 const ROUTER_KEY='__ZETA_OR_ROUTER_BOOKMARKLET_V1__';
-
 const BASE='https://cdn.jsdelivr.net/gh/softly320/zeta-router@main/';
 
 const URLS={
@@ -11,40 +10,43 @@ const URLS={
   feed:BASE+'zeta-feed.js',
   theme:BASE+'zeta-theme.js',
   narrator:BASE+'zeta-narrator.js',
-
   kit:'https://zetakit.pages.dev/run.js',
   phone:'https://inpocket.pages.dev/inpocket.js'
 };
 
-const BUTTON_ID='__zeta_toolbox_button__';
-const MENU_ID='__zeta_toolbox_menu__';
-const ADD_ID='__zeta_toolbox_add_button__';
-const STYLE_ID='__zeta_toolbox_style__';
-const MODAL_ID='__zeta_toolbox_custom_modal__';
+const IDS={
+  button:'__zeta_toolbox_button__',
+  menu:'__zeta_toolbox_menu__',
+  add:'__zeta_toolbox_add_button__',
+  modal:'__zeta_toolbox_custom_modal__',
+  style:'__zeta_toolbox_style__'
+};
 
 const POS_KEY='__ZETA_TOOLBOX_POSITION__';
 const CUSTOM_KEY='__ZETA_TOOLBOX_CUSTOM_TOOLS_V1__';
 
 
 /* =========================================================
-   기존 런처 정리
-   Router는 절대 끄지 않음
+   재실행
+
+   이미 존재하면 절대로 OFF/삭제하지 않는다.
+   기존 Z 버튼 + 메뉴만 다시 보여준다.
    ========================================================= */
 
-try{
-  window[KEY]?.destroy?.();
-}catch(_){}
+if(
+  window[KEY]?.show &&
+  document.getElementById(IDS.button)
+){
+  window[KEY].show();
+  window[KEY].ensureRouter?.();
+  return;
+}
 
-[
-  BUTTON_ID,
-  MENU_ID,
-  ADD_ID,
-  STYLE_ID,
-  MODAL_ID
-].forEach(id=>{
-  document.getElementById(id)?.remove();
-});
 
+/*
+ * 전역 키만 남고 DOM이 사라진 비정상 상태
+ * 이 경우에만 새로 생성
+ */
 try{
   delete window[KEY];
 }catch(_){
@@ -52,13 +54,23 @@ try{
 }
 
 
+Object.values(IDS).forEach(id=>{
+  document.getElementById(id)?.remove();
+});
+
+
 /* =========================================================
-   외부 스크립트 로더
+   외부 JS 로더
    ========================================================= */
 
-function loadScript(url,onload,onerror){
+function loadScript(
+  url,
+  onload,
+  onerror
+){
 
-  const s=document.createElement('script');
+  const s=
+    document.createElement('script');
 
   s.src=
     url+
@@ -66,17 +78,25 @@ function loadScript(url,onload,onerror){
     't='+
     Date.now();
 
+
   s.onload=()=>{
+
     s.remove();
+
     onload?.();
   };
 
+
   s.onerror=()=>{
+
     s.remove();
 
     if(onerror){
+
       onerror();
+
     }else{
+
       alert(
         '스크립트 로드 실패:\n'+
         url
@@ -84,8 +104,9 @@ function loadScript(url,onload,onerror){
     }
   };
 
+
   (
-    document.head||
+    document.head ||
     document.documentElement
   ).appendChild(s);
 }
@@ -98,25 +119,34 @@ function loadScript(url,onload,onerror){
 function ensureRouter(done){
 
   if(window[ROUTER_KEY]){
+
     updateRouterState();
+
     done?.();
+
     return;
   }
 
+
   loadScript(
+
     URLS.router,
 
     ()=>{
+
       updateRouterState();
+
       done?.();
     },
 
     ()=>{
+
       alert(
         'Provider Router를 불러오지 못했습니다.'
       );
 
       updateRouterState();
+
       done?.();
     }
   );
@@ -124,7 +154,7 @@ function ensureRouter(done){
 
 
 /* =========================================================
-   기본 도구
+   기본 기능
    ========================================================= */
 
 function openKit(){
@@ -137,19 +167,25 @@ function openKit(){
 
 function openFeed(){
 
-  loadScript(URLS.feed);
+  loadScript(
+    URLS.feed
+  );
 }
 
 
 function applyTheme(){
 
-  loadScript(URLS.theme);
+  loadScript(
+    URLS.theme
+  );
 }
 
 
 function openNarrator(){
 
-  loadScript(URLS.narrator);
+  loadScript(
+    URLS.narrator
+  );
 }
 
 
@@ -159,21 +195,26 @@ function openPhone(){
     window.__INPOCKET__?.destroy?.();
   }catch(_){}
 
+
   document
     .querySelectorAll(
       'script[data-zeta-toolbox-inpocket]'
     )
     .forEach(s=>s.remove());
 
+
   const s=
     document.createElement('script');
 
+
   s.dataset.zetaToolboxInpocket='1';
+
 
   s.src=
     URLS.phone+
     '?cb='+
     Date.now();
+
 
   s.onload=()=>{
 
@@ -182,6 +223,7 @@ function openPhone(){
     }catch(_){}
   };
 
+
   s.onerror=()=>{
 
     alert(
@@ -189,15 +231,16 @@ function openPhone(){
     );
   };
 
+
   (
-    document.head||
+    document.head ||
     document.documentElement
   ).appendChild(s);
 }
 
 
 /* =========================================================
-   사용자 도구 데이터
+   사용자 도구
    ========================================================= */
 
 function readCustomTools(){
@@ -208,8 +251,9 @@ function readCustomTools(){
       JSON.parse(
         localStorage.getItem(
           CUSTOM_KEY
-        )||'[]'
+        ) || '[]'
       );
+
 
     return Array.isArray(data)
       ? data
@@ -222,11 +266,11 @@ function readCustomTools(){
 }
 
 
-function writeCustomTools(tools){
+function writeCustomTools(data){
 
   localStorage.setItem(
     CUSTOM_KEY,
-    JSON.stringify(tools)
+    JSON.stringify(data)
   );
 }
 
@@ -250,6 +294,7 @@ function runCustomTool(tool){
       tool?.code
     );
 
+
   if(!code){
 
     alert(
@@ -259,6 +304,7 @@ function runCustomTool(tool){
     return;
   }
 
+
   try{
 
     (0,eval)(code);
@@ -266,14 +312,15 @@ function runCustomTool(tool){
   }catch(error){
 
     console.error(
-      '[ZETA Toolbox] 사용자 도구 오류',
+      '[ZETA Toolbox] custom tool error',
       error
     );
+
 
     alert(
       '사용자 도구 실행 실패:\n'+
       (
-        error?.message||
+        error?.message ||
         error
       )
     );
@@ -281,38 +328,41 @@ function runCustomTool(tool){
 }
 
 
-function escapeHTML(value){
+function esc(value){
 
   return String(value??'')
     .replace(
       /[&<>"']/g,
-      char=>({
+      c=>({
         '&':'&amp;',
         '<':'&lt;',
         '>':'&gt;',
         '"':'&quot;',
         "'":'&#39;'
-      }[char])
+      }[c])
     );
 }
 
 
 /* =========================================================
-   스타일
+   STYLE
    ========================================================= */
 
 const style=
   document.createElement('style');
 
-style.id=STYLE_ID;
+
+style.id=
+  IDS.style;
+
 
 style.textContent=`
 
-/* =========================================================
+/* =========================
    메인 Z 버튼
-   ========================================================= */
+   ========================= */
 
-#${BUTTON_ID}{
+#${IDS.button}{
 
   position:fixed;
 
@@ -377,7 +427,6 @@ style.textContent=`
   cursor:grab;
 
   user-select:none;
-
   -webkit-user-select:none;
 
   touch-action:none;
@@ -387,14 +436,14 @@ style.textContent=`
 }
 
 
-#${BUTTON_ID}:active{
+#${IDS.button}:active{
 
   transform:
     scale(.94);
 }
 
 
-#${BUTTON_ID}[data-dragging="1"]{
+#${IDS.button}[data-dragging="1"]{
 
   cursor:grabbing;
 
@@ -403,10 +452,9 @@ style.textContent=`
 }
 
 
-/* Router 상태 점 */
+/* Router 점 */
 
-#${BUTTON_ID}
-.zeta-toolbox-dot{
+#${IDS.button} .zt-dot{
 
   position:absolute;
 
@@ -416,7 +464,7 @@ style.textContent=`
   width:8px;
   height:8px;
 
-  border-radius:999px;
+  border-radius:50%;
 
   background:#ef4444;
 
@@ -426,8 +474,8 @@ style.textContent=`
 }
 
 
-#${BUTTON_ID}[data-router="on"]
-.zeta-toolbox-dot{
+#${IDS.button}[data-router="on"]
+.zt-dot{
 
   background:#22c55e;
 
@@ -437,11 +485,11 @@ style.textContent=`
 }
 
 
-/* =========================================================
+/* =========================
    도구 메뉴
-   ========================================================= */
+   ========================= */
 
-#${MENU_ID}{
+#${IDS.menu}{
 
   position:fixed;
 
@@ -487,16 +535,13 @@ style.textContent=`
 }
 
 
-#${MENU_ID}[data-open="1"]{
+#${IDS.menu}[data-open="1"]{
 
   display:block;
 }
 
 
-/* 상단 */
-
-#${MENU_ID}
-.zeta-toolbox-head{
+#${IDS.menu} .zt-head{
 
   display:flex;
 
@@ -523,8 +568,7 @@ style.textContent=`
 }
 
 
-#${MENU_ID}
-.zeta-router-state{
+#${IDS.menu} .zt-state{
 
   color:#ef4444;
 
@@ -532,19 +576,19 @@ style.textContent=`
 }
 
 
-#${MENU_ID}
-.zeta-router-state[data-on="1"]{
+#${IDS.menu}
+.zt-state[data-on="1"]{
 
   color:#4ade80;
 }
 
 
-/* =========================================================
-   카드 영역만 스크롤
-   ========================================================= */
+/*
+ * 도구가 많아지면
+ * 카드 부분만 스크롤
+ */
 
-#${MENU_ID}
-.zeta-toolbox-scroll{
+#${IDS.menu} .zt-scroll{
 
   max-height:
     min(
@@ -556,8 +600,7 @@ style.textContent=`
 
   overflow-x:hidden;
 
-  padding:
-    1px;
+  padding:1px;
 
   -webkit-overflow-scrolling:
     touch;
@@ -570,8 +613,7 @@ style.textContent=`
 }
 
 
-#${MENU_ID}
-.zeta-toolbox-grid{
+#${IDS.menu} .zt-grid{
 
   display:grid;
 
@@ -585,12 +627,9 @@ style.textContent=`
 }
 
 
-/* =========================================================
-   카드
-   ========================================================= */
+/* 카드 */
 
-#${MENU_ID}
-.zeta-toolbox-item{
+#${IDS.menu} .zt-item{
 
   width:100%;
 
@@ -639,16 +678,10 @@ style.textContent=`
 
   -webkit-tap-highlight-color:
     transparent;
-
-  transition:
-    background .12s ease,
-    transform .08s ease,
-    border-color .12s ease;
 }
 
 
-#${MENU_ID}
-.zeta-toolbox-item:active{
+#${IDS.menu} .zt-item:active{
 
   background:
     rgba(255,255,255,.15);
@@ -661,8 +694,7 @@ style.textContent=`
 }
 
 
-#${MENU_ID}
-.zeta-toolbox-icon{
+#${IDS.menu} .zt-icon{
 
   display:flex;
 
@@ -684,8 +716,7 @@ style.textContent=`
 }
 
 
-#${MENU_ID}
-.zeta-toolbox-label{
+#${IDS.menu} .zt-label{
 
   max-width:100%;
 
@@ -703,11 +734,14 @@ style.textContent=`
 }
 
 
-/* =========================================================
-   메뉴 밖의 + 버튼
-   ========================================================= */
+/* =========================
+   ★ 도구 추가 버튼
 
-#${ADD_ID}{
+   메뉴 내부가 아니다.
+   별도의 fixed DOM이다.
+   ========================= */
+
+#${IDS.add}{
 
   position:fixed;
 
@@ -727,7 +761,7 @@ style.textContent=`
     1px solid
     rgba(147,197,253,.34);
 
-  border-radius:999px;
+  border-radius:50%;
 
   background:
     rgba(28,32,42,.98);
@@ -735,15 +769,12 @@ style.textContent=`
   color:#93c5fd;
 
   font:
-    300 27px/1
+    300 28px/1
     system-ui;
 
   box-shadow:
     0 8px 26px
-    rgba(0,0,0,.42),
-
-    0 0 0 1px
-    rgba(255,255,255,.03);
+    rgba(0,0,0,.42);
 
   backdrop-filter:
     blur(14px);
@@ -761,13 +792,13 @@ style.textContent=`
 }
 
 
-#${ADD_ID}[data-open="1"]{
+#${IDS.add}[data-open="1"]{
 
   display:flex;
 }
 
 
-#${ADD_ID}:active{
+#${IDS.add}:active{
 
   transform:
     scale(.92);
@@ -777,11 +808,11 @@ style.textContent=`
 }
 
 
-/* =========================================================
-   사용자 도구 설정 모달
-   ========================================================= */
+/* =========================
+   사용자 도구 관리창
+   ========================= */
 
-#${MODAL_ID}{
+#${IDS.modal}{
 
   position:fixed;
 
@@ -815,14 +846,13 @@ style.textContent=`
 }
 
 
-#${MODAL_ID}[data-open="1"]{
+#${IDS.modal}[data-open="1"]{
 
   display:flex;
 }
 
 
-#${MODAL_ID}
-.ztm-card{
+#${IDS.modal} .zm-card{
 
   box-sizing:border-box;
 
@@ -855,14 +885,10 @@ style.textContent=`
   box-shadow:
     0 18px 60px
     rgba(0,0,0,.46);
-
-  -webkit-overflow-scrolling:
-    touch;
 }
 
 
-#${MODAL_ID}
-.ztm-title{
+#${IDS.modal} .zm-title{
 
   display:flex;
 
@@ -879,8 +905,7 @@ style.textContent=`
 }
 
 
-#${MODAL_ID}
-.ztm-close{
+#${IDS.modal} .zm-close{
 
   width:34px;
   height:34px;
@@ -898,8 +923,7 @@ style.textContent=`
 }
 
 
-#${MODAL_ID}
-.ztm-row{
+#${IDS.modal} .zm-row{
 
   display:grid;
 
@@ -912,8 +936,7 @@ style.textContent=`
 }
 
 
-#${MODAL_ID}
-label{
+#${IDS.modal} label{
 
   display:block;
 
@@ -927,11 +950,9 @@ label{
 }
 
 
-#${MODAL_ID}
-input,
+#${IDS.modal} input,
 
-#${MODAL_ID}
-textarea{
+#${IDS.modal} textarea{
 
   box-sizing:border-box;
 
@@ -959,8 +980,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-textarea{
+#${IDS.modal} textarea{
 
   min-height:150px;
 
@@ -976,8 +996,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-actions{
+#${IDS.modal} .zm-actions{
 
   display:flex;
 
@@ -987,8 +1006,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-btn{
+#${IDS.modal} .zm-btn{
 
   flex:1;
 
@@ -1004,8 +1022,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-save{
+#${IDS.modal} .zm-save{
 
   background:#6d88cf;
 
@@ -1013,8 +1030,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-cancel{
+#${IDS.modal} .zm-cancel{
 
   background:
     rgba(255,255,255,.07);
@@ -1024,8 +1040,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-divider{
+#${IDS.modal} .zm-divider{
 
   height:1px;
 
@@ -1037,8 +1052,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-subtitle{
+#${IDS.modal} .zm-sub{
 
   margin-bottom:8px;
 
@@ -1049,8 +1063,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-list{
+#${IDS.modal} .zm-list{
 
   display:flex;
 
@@ -1060,8 +1073,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-entry{
+#${IDS.modal} .zm-entry{
 
   display:grid;
 
@@ -1088,8 +1100,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-entry-icon{
+#${IDS.modal} .zm-eicon{
 
   text-align:center;
 
@@ -1097,8 +1108,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-entry-name{
+#${IDS.modal} .zm-ename{
 
   overflow:hidden;
 
@@ -1112,8 +1122,7 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-mini{
+#${IDS.modal} .zm-mini{
 
   height:30px;
 
@@ -1135,15 +1144,13 @@ textarea{
 }
 
 
-#${MODAL_ID}
-.ztm-delete{
+#${IDS.modal} .zm-delete{
 
   color:#fca5a5;
 }
 
 
-#${MODAL_ID}
-.ztm-empty{
+#${IDS.modal} .zm-empty{
 
   padding:14px 4px;
 
@@ -1155,29 +1162,17 @@ textarea{
   font-size:11px;
 }
 
-
-#${MODAL_ID}
-.ztm-note{
-
-  margin-top:8px;
-
-  color:
-    rgba(255,255,255,.38);
-
-  font-size:10px;
-
-  line-height:1.4;
-}
 `;
 
+
 (
-  document.head||
+  document.head ||
   document.documentElement
 ).appendChild(style);
 
 
 /* =========================================================
-   DOM
+   DOM 생성
    ========================================================= */
 
 const button=
@@ -1185,13 +1180,18 @@ const button=
     'button'
   );
 
-button.id=BUTTON_ID;
 
-button.type='button';
+button.id=
+  IDS.button;
+
+
+button.type=
+  'button';
+
 
 button.innerHTML=
   '<span>Z</span>'+
-  '<span class="zeta-toolbox-dot"></span>';
+  '<span class="zt-dot"></span>';
 
 
 const menu=
@@ -1199,53 +1199,71 @@ const menu=
     'div'
   );
 
-menu.id=MENU_ID;
 
-menu.dataset.open='0';
+menu.id=
+  IDS.menu;
+
+
+menu.dataset.open=
+  '0';
+
 
 menu.innerHTML=`
 
-<div class="zeta-toolbox-head">
+<div class="zt-head">
 
   <span>
     ZETA TOOLS
+    <b style="opacity:.45">
+      4.0
+    </b>
   </span>
 
-  <span class="zeta-router-state">
+  <span class="zt-state">
     ROUTER
   </span>
 
 </div>
 
-<div class="zeta-toolbox-scroll">
 
-  <div class="zeta-toolbox-grid"></div>
+<div class="zt-scroll">
+
+  <div class="zt-grid"></div>
 
 </div>
 
 `;
 
 
+/*
+ * ★ 별도 + 버튼
+ * menu 안에 append하지 않는다.
+ */
+
 const addButton=
   document.createElement(
     'button'
   );
 
-addButton.id=ADD_ID;
 
-addButton.type='button';
+addButton.id=
+  IDS.add;
 
-addButton.dataset.open='0';
+
+addButton.type=
+  'button';
+
+
+addButton.dataset.open=
+  '0';
+
+
+addButton.textContent=
+  '＋';
+
 
 addButton.title=
-  '사용자 도구 추가';
-
-addButton.setAttribute(
-  'aria-label',
-  '사용자 도구 추가'
-);
-
-addButton.textContent='＋';
+  '도구 추가';
 
 
 const modal=
@@ -1253,15 +1271,20 @@ const modal=
     'div'
   );
 
-modal.id=MODAL_ID;
 
-modal.dataset.open='0';
+modal.id=
+  IDS.modal;
+
+
+modal.dataset.open=
+  '0';
+
 
 modal.innerHTML=`
 
-<div class="ztm-card">
+<div class="zm-card">
 
-  <div class="ztm-title">
+  <div class="zm-title">
 
     <span>
       사용자 도구
@@ -1269,8 +1292,7 @@ modal.innerHTML=`
 
     <button
       type="button"
-      class="ztm-close"
-      aria-label="닫기"
+      class="zm-close"
     >
       ×
     </button>
@@ -1278,7 +1300,7 @@ modal.innerHTML=`
   </div>
 
 
-  <div class="ztm-row">
+  <div class="zm-row">
 
     <div>
 
@@ -1287,8 +1309,7 @@ modal.innerHTML=`
       </label>
 
       <input
-        class="ztm-icon"
-        type="text"
+        class="zm-icon"
         maxlength="12"
         placeholder="🧩"
       >
@@ -1303,8 +1324,7 @@ modal.innerHTML=`
       </label>
 
       <input
-        class="ztm-name"
-        type="text"
+        class="zm-name"
         maxlength="40"
         placeholder="내 도구"
       >
@@ -1320,17 +1340,17 @@ modal.innerHTML=`
 
 
   <textarea
-    class="ztm-code"
+    class="zm-code"
     spellcheck="false"
     placeholder="javascript:(()=>{ ... })()"
   ></textarea>
 
 
-  <div class="ztm-actions">
+  <div class="zm-actions">
 
     <button
       type="button"
-      class="ztm-btn ztm-cancel"
+      class="zm-btn zm-cancel"
     >
       초기화
     </button>
@@ -1338,7 +1358,7 @@ modal.innerHTML=`
 
     <button
       type="button"
-      class="ztm-btn ztm-save"
+      class="zm-btn zm-save"
     >
       추가
     </button>
@@ -1346,30 +1366,31 @@ modal.innerHTML=`
   </div>
 
 
-  <div class="ztm-note">
-
-    추가한 도구는 이 브라우저에 저장됩니다.
-
-  </div>
+  <div class="zm-divider"></div>
 
 
-  <div class="ztm-divider"></div>
-
-
-  <div class="ztm-subtitle">
+  <div class="zm-sub">
     추가한 사용자 도구
   </div>
 
 
-  <div class="ztm-list"></div>
+  <div class="zm-list"></div>
 
 </div>
 
 `;
 
 
+/*
+ * 네 개가 서로 형제 DOM
+ *
+ * button
+ * menu
+ * addButton
+ * modal
+ */
 (
-  document.body||
+  document.body ||
   document.documentElement
 ).append(
   button,
@@ -1379,46 +1400,60 @@ modal.innerHTML=`
 );
 
 
+/* =========================================================
+   DOM refs
+   ========================================================= */
+
 const grid=
   menu.querySelector(
-    '.zeta-toolbox-grid'
+    '.zt-grid'
   );
 
-const stateText=
+
+const state=
   menu.querySelector(
-    '.zeta-router-state'
+    '.zt-state'
   );
+
 
 const iconInput=
   modal.querySelector(
-    '.ztm-icon'
+    '.zm-icon'
   );
+
 
 const nameInput=
   modal.querySelector(
-    '.ztm-name'
+    '.zm-name'
   );
+
 
 const codeInput=
   modal.querySelector(
-    '.ztm-code'
+    '.zm-code'
   );
+
 
 const saveBtn=
   modal.querySelector(
-    '.ztm-save'
+    '.zm-save'
   );
+
 
 const listBox=
   modal.querySelector(
-    '.ztm-list'
+    '.zm-list'
   );
 
-let editingId=null;
+
+let editingId=
+  null;
 
 
 /* =========================================================
-   기본 카드
+   기본 도구
+
+   여기에 +가 없다.
    ========================================================= */
 
 const BUILTINS=[
@@ -1456,7 +1491,7 @@ const BUILTINS=[
 ];
 
 
-function tileHTML({
+function tile({
   action,
   icon,
   name,
@@ -1464,25 +1499,28 @@ function tileHTML({
 }){
 
   const attr=
+
     customId
-      ? `data-custom-id="${escapeHTML(customId)}"`
-      : `data-action="${escapeHTML(action)}"`;
+
+      ? `data-custom-id="${esc(customId)}"`
+
+      : `data-action="${esc(action)}"`;
 
 
   return `
 
 <button
   type="button"
-  class="zeta-toolbox-item"
+  class="zt-item"
   ${attr}
 >
 
-  <span class="zeta-toolbox-icon">
-    ${escapeHTML(icon)}
+  <span class="zt-icon">
+    ${esc(icon)}
   </span>
 
-  <span class="zeta-toolbox-label">
-    ${escapeHTML(name)}
+  <span class="zt-label">
+    ${esc(name)}
   </span>
 
 </button>
@@ -1492,7 +1530,7 @@ function tileHTML({
 
 
 /* =========================================================
-   그리드 렌더
+   카드 렌더
    ========================================================= */
 
 function renderGrid(){
@@ -1504,7 +1542,7 @@ function renderGrid(){
   grid.innerHTML=
 
     BUILTINS
-      .map(tileHTML)
+      .map(tile)
       .join('')
 
     +
@@ -1512,10 +1550,17 @@ function renderGrid(){
     custom
       .map(
         tool=>
-          tileHTML({
-            customId:tool.id,
-            icon:tool.icon||'🧩',
-            name:tool.name||'도구'
+          tile({
+            customId:
+              tool.id,
+
+            icon:
+              tool.icon||
+              '🧩',
+
+            name:
+              tool.name||
+              '도구'
           })
       )
       .join('');
@@ -1523,67 +1568,57 @@ function renderGrid(){
 
 
 /* =========================================================
-   사용자 관리
+   사용자 도구 관리
    ========================================================= */
 
 function resetForm(){
 
-  editingId=null;
+  editingId=
+    null;
 
   iconInput.value='';
   nameInput.value='';
   codeInput.value='';
 
-  saveBtn.textContent='추가';
+  saveBtn.textContent=
+    '추가';
 }
 
 
-function renderCustomList(){
+function renderList(){
 
   const tools=
     readCustomTools();
 
 
-  if(!tools.length){
-
-    listBox.innerHTML=
-
-      '<div class="ztm-empty">'+
-      '아직 추가한 도구가 없습니다.'+
-      '</div>';
-
-    return;
-  }
-
-
   listBox.innerHTML=
 
-    tools
-      .map(
-        tool=>`
+    tools.length
 
-<div class="ztm-entry">
+      ? tools
+          .map(
+            tool=>`
 
-  <div class="ztm-entry-icon">
-    ${escapeHTML(tool.icon||'🧩')}
+<div class="zm-entry">
+
+  <div class="zm-eicon">
+    ${esc(tool.icon||'🧩')}
   </div>
 
-  <div class="ztm-entry-name">
-    ${escapeHTML(tool.name||'도구')}
+  <div class="zm-ename">
+    ${esc(tool.name||'도구')}
   </div>
 
   <button
-    type="button"
-    class="ztm-mini"
-    data-edit="${escapeHTML(tool.id)}"
+    class="zm-mini"
+    data-edit="${esc(tool.id)}"
   >
     수정
   </button>
 
   <button
-    type="button"
-    class="ztm-mini ztm-delete"
-    data-delete="${escapeHTML(tool.id)}"
+    class="zm-mini zm-delete"
+    data-delete="${esc(tool.id)}"
   >
     삭제
   </button>
@@ -1591,18 +1626,22 @@ function renderCustomList(){
 </div>
 
 `
-      )
-      .join('');
+          )
+          .join('')
+
+      : '<div class="zm-empty">아직 추가한 도구가 없습니다.</div>';
 }
 
 
-function openCustomManager(){
+function openManager(){
 
   resetForm();
 
-  renderCustomList();
+  renderList();
 
-  modal.dataset.open='1';
+  modal.dataset.open=
+    '1';
+
 
   setTimeout(
     ()=>nameInput.focus(),
@@ -1611,54 +1650,16 @@ function openCustomManager(){
 }
 
 
-function closeCustomManager(){
+function closeManager(){
 
-  modal.dataset.open='0';
+  modal.dataset.open=
+    '0';
 }
 
 
-addButton.addEventListener(
-  'click',
-  ()=>{
-
-    closeMenu();
-
-    openCustomManager();
-  }
-);
-
-
-modal
-  .querySelector(
-    '.ztm-close'
-  )
-  .addEventListener(
-    'click',
-    closeCustomManager
-  );
-
-
-modal
-  .querySelector(
-    '.ztm-cancel'
-  )
-  .addEventListener(
-    'click',
-    resetForm
-  );
-
-
-modal.addEventListener(
-  'pointerdown',
-  event=>{
-
-    if(event.target===modal){
-
-      closeCustomManager();
-    }
-  }
-);
-
+/* =========================================================
+   저장
+   ========================================================= */
 
 saveBtn.addEventListener(
   'click',
@@ -1727,7 +1728,7 @@ saveBtn.addEventListener(
 
       /*
        * 새 도구는
-       * 사용자 도구 중 가장 앞에 추가
+       * 사용자 도구 중 앞쪽
        */
       tools.unshift({
 
@@ -1754,9 +1755,48 @@ saveBtn.addEventListener(
 
     renderGrid();
 
-    renderCustomList();
+    renderList();
 
     resetForm();
+  }
+);
+
+
+/* =========================================================
+   관리창 이벤트
+   ========================================================= */
+
+modal
+  .querySelector(
+    '.zm-close'
+  )
+  .addEventListener(
+    'click',
+    closeManager
+  );
+
+
+modal
+  .querySelector(
+    '.zm-cancel'
+  )
+  .addEventListener(
+    'click',
+    resetForm
+  );
+
+
+modal.addEventListener(
+  'pointerdown',
+  event=>{
+
+    if(
+      event.target===
+      modal
+    ){
+
+      closeManager();
+    }
   }
 );
 
@@ -1796,15 +1836,18 @@ listBox.addEventListener(
 
 
       iconInput.value=
-        tool.icon||'';
+        tool.icon||
+        '';
 
 
       nameInput.value=
-        tool.name||'';
+        tool.name||
+        '';
 
 
       codeInput.value=
-        tool.code||'';
+        tool.code||
+        '';
 
 
       saveBtn.textContent=
@@ -1825,19 +1868,17 @@ listBox.addEventListener(
         readCustomTools();
 
 
-      const target=
+      const tool=
         tools.find(
-          tool=>
-            tool.id===id
+          item=>
+            item.id===id
         );
 
 
-      if(!target)return;
-
-
       if(
+        !tool ||
         !confirm(
-          `“${target.name}” 도구를 삭제할까요?`
+          `“${tool.name}” 도구를 삭제할까요?`
         )
       ){
         return;
@@ -1845,14 +1886,17 @@ listBox.addEventListener(
 
 
       writeCustomTools(
+
         tools.filter(
-          tool=>
-            tool.id!==id
+          item=>
+            item.id!==id
         )
       );
 
 
-      if(editingId===id){
+      if(
+        editingId===id
+      ){
 
         resetForm();
       }
@@ -1860,8 +1904,23 @@ listBox.addEventListener(
 
       renderGrid();
 
-      renderCustomList();
+      renderList();
     }
+  }
+);
+
+
+/* =========================================================
+   별도 + 버튼
+   ========================================================= */
+
+addButton.addEventListener(
+  'click',
+  ()=>{
+
+    closeMenu();
+
+    openManager();
   }
 );
 
@@ -1884,13 +1943,13 @@ function updateRouterState(){
       : 'off';
 
 
-  stateText.dataset.on=
+  state.dataset.on=
     on
       ? '1'
       : '0';
 
 
-  stateText.textContent=
+  state.textContent=
     on
       ? 'ROUTER ON'
       : 'ROUTER …';
@@ -1899,7 +1958,8 @@ function updateRouterState(){
 
 /* =========================================================
    메뉴 위치
-   + 버튼은 메뉴 아래에 따로 위치
+
+   메뉴와 +는 서로 별개다.
    ========================================================= */
 
 function positionMenu(){
@@ -1919,16 +1979,25 @@ function positionMenu(){
     390;
 
 
-  const addSize=46;
-
-  const addGap=10;
-
-  const pad=8;
+  const ADD_SIZE=
+    46;
 
 
-  /*
-   * 메뉴 중앙을 Z 버튼에 맞춤
-   */
+  const GAP=
+    10;
+
+
+  const PAD=
+    8;
+
+
+  const totalHeight=
+
+    height+
+    GAP+
+    ADD_SIZE;
+
+
   let left=
 
     b.left+
@@ -1941,40 +2010,27 @@ function positionMenu(){
   left=
     Math.max(
 
-      pad,
+      PAD,
 
       Math.min(
 
         innerWidth-
         width-
-        pad,
+        PAD,
 
         left
       )
     );
 
 
-  /*
-   * 메뉴 + +버튼 전체 높이
-   */
-  const totalHeight=
-
-    height+
-    addGap+
-    addSize;
-
-
   let top;
 
 
-  /*
-   * 가능하면 Z 버튼 위쪽
-   */
   if(
     b.top-
     totalHeight-
     10>=
-    pad
+    PAD
   ){
 
     top=
@@ -1985,20 +2041,17 @@ function positionMenu(){
 
   }else{
 
-    /*
-     * 공간 부족하면 화면 안쪽에 맞춤
-     */
     top=
 
       Math.max(
 
-        pad,
+        PAD,
 
         Math.min(
 
           innerHeight-
           totalHeight-
-          pad,
+          PAD,
 
           b.top-
           totalHeight/2
@@ -2018,46 +2071,46 @@ function positionMenu(){
 
 
   /*
-   * +는 메뉴 밖 아래 중앙
+   * 별도 + 버튼:
+   * 메뉴 아래 중앙
    */
-  const addLeft=
-
-    left+
-
-    width/2-
-
-    addSize/2;
-
-
-  const addTop=
-
-    top+
-    height+
-    addGap;
-
-
   addButton.style.left=
-    addLeft+
+
+    (
+      left+
+      width/2-
+      ADD_SIZE/2
+    )+
+
     'px';
 
 
   addButton.style.top=
-    addTop+
+
+    (
+      top+
+      height+
+      GAP
+    )+
+
     'px';
 }
 
 
 /* =========================================================
-   메뉴 열기 / 닫기
+   메뉴
    ========================================================= */
 
 function openMenu(){
 
   renderGrid();
 
-  menu.dataset.open='1';
+  menu.dataset.open=
+    '1';
 
-  addButton.dataset.open='1';
+
+  addButton.dataset.open=
+    '1';
 
 
   requestAnimationFrame(
@@ -2071,25 +2124,25 @@ function openMenu(){
 
 function closeMenu(){
 
-  menu.dataset.open='0';
+  menu.dataset.open=
+    '0';
 
-  addButton.dataset.open='0';
+
+  addButton.dataset.open=
+    '0';
 }
 
 
-function toggleMenu(){
+/*
+ * 재실행용
+ */
+function show(){
 
-  if(
-    menu.dataset.open===
-    '1'
-  ){
+  button.style.display=
+    'flex';
 
-    closeMenu();
 
-  }else{
-
-    openMenu();
-  }
+  openMenu();
 }
 
 
@@ -2099,7 +2152,6 @@ function toggleMenu(){
 
 menu.addEventListener(
   'click',
-
   event=>{
 
     const custom=
@@ -2143,41 +2195,31 @@ menu.addEventListener(
     if(!item)return;
 
 
-    const action=
-      item.dataset.action;
-
-
     closeMenu();
 
 
-    if(action==='kit'){
+    const actions={
 
-      openKit();
+      kit:
+        openKit,
 
-    }else if(
-      action==='feed'
-    ){
+      feed:
+        openFeed,
 
-      openFeed();
+      theme:
+        applyTheme,
 
-    }else if(
-      action==='theme'
-    ){
+      phone:
+        openPhone,
 
-      applyTheme();
+      narrator:
+        openNarrator
+    };
 
-    }else if(
-      action==='phone'
-    ){
 
-      openPhone();
-
-    }else if(
-      action==='narrator'
-    ){
-
-      openNarrator();
-    }
+    actions[
+      item.dataset.action
+    ]?.();
   }
 );
 
@@ -2187,6 +2229,7 @@ menu.addEventListener(
    ========================================================= */
 
 let pointerId=null;
+
 let moved=false;
 
 let startX=0;
@@ -2196,166 +2239,165 @@ let startLeft=0;
 let startTop=0;
 
 
-function buttonPointerDown(event){
+button.addEventListener(
+  'pointerdown',
+  event=>{
 
-  pointerId=
-    event.pointerId;
+    pointerId=
+      event.pointerId;
 
-
-  moved=
-    false;
-
-
-  const rect=
-    button
-      .getBoundingClientRect();
-
-
-  startX=
-    event.clientX;
-
-
-  startY=
-    event.clientY;
-
-
-  startLeft=
-    rect.left;
-
-
-  startTop=
-    rect.top;
-
-
-  button.dataset.dragging=
-    '1';
-
-
-  try{
-
-    button.setPointerCapture(
-      pointerId
-    );
-
-  }catch(_){}
-
-
-  event.preventDefault();
-}
-
-
-function buttonPointerMove(event){
-
-  if(
-    pointerId===
-    null||
-    event.pointerId!==
-    pointerId
-  ){
-    return;
-  }
-
-
-  const dx=
-    event.clientX-
-    startX;
-
-
-  const dy=
-    event.clientY-
-    startY;
-
-
-  if(
-    !moved&&
-    Math.hypot(
-      dx,
-      dy
-    )>5
-  ){
 
     moved=
-      true;
+      false;
 
-    closeMenu();
+
+    const rect=
+      button
+        .getBoundingClientRect();
+
+
+    startX=
+      event.clientX;
+
+
+    startY=
+      event.clientY;
+
+
+    startLeft=
+      rect.left;
+
+
+    startTop=
+      rect.top;
+
+
+    button.dataset.dragging=
+      '1';
+
+
+    try{
+
+      button.setPointerCapture(
+        pointerId
+      );
+
+    }catch(_){}
+
+
+    event.preventDefault();
   }
+);
 
 
-  if(!moved)return;
+button.addEventListener(
+  'pointermove',
+  event=>{
+
+    if(
+      pointerId===null ||
+      event.pointerId!==
+      pointerId
+    ){
+      return;
+    }
 
 
-  const x=
-
-    Math.max(
-
-      5,
-
-      Math.min(
-
-        innerWidth-
-        button.offsetWidth-
-        5,
-
-        startLeft+
-        dx
-      )
-    );
+    const dx=
+      event.clientX-
+      startX;
 
 
-  const y=
+    const dy=
+      event.clientY-
+      startY;
 
-    Math.max(
 
-      5,
-
-      Math.min(
-
-        innerHeight-
-        button.offsetHeight-
-        5,
-
-        startTop+
+    if(
+      !moved &&
+      Math.hypot(
+        dx,
         dy
-      )
-    );
+      )>5
+    ){
+
+      moved=true;
+
+      closeMenu();
+    }
 
 
-  button.style.left=
-    x+
-    'px';
+    if(!moved)return;
 
 
-  button.style.top=
-    y+
-    'px';
+    const x=
+
+      Math.max(
+
+        5,
+
+        Math.min(
+
+          innerWidth-
+          button.offsetWidth-
+          5,
+
+          startLeft+
+          dx
+        )
+      );
 
 
-  button.style.right=
-    'auto';
+    const y=
+
+      Math.max(
+
+        5,
+
+        Math.min(
+
+          innerHeight-
+          button.offsetHeight-
+          5,
+
+          startTop+
+          dy
+        )
+      );
 
 
-  button.style.bottom=
-    'auto';
+    button.style.left=
+      x+
+      'px';
 
 
-  event.preventDefault();
-}
+    button.style.top=
+      y+
+      'px';
+
+
+    button.style.right=
+      'auto';
+
+
+    button.style.bottom=
+      'auto';
+
+
+    event.preventDefault();
+  }
+);
 
 
 function finishDrag(event){
 
   if(
-    pointerId===
-    null
-  ){
-    return;
-  }
-
-
-  if(
-    event&&
-    event.pointerId!==
-    pointerId
+    pointerId===null ||
+    (
+      event &&
+      event.pointerId!==
+      pointerId
+    )
   ){
     return;
   }
@@ -2388,8 +2430,12 @@ function finishDrag(event){
         POS_KEY,
 
         JSON.stringify({
-          x:rect.left,
-          y:rect.top
+
+          x:
+            rect.left,
+
+          y:
+            rect.top
         })
       );
 
@@ -2397,26 +2443,17 @@ function finishDrag(event){
 
   }else{
 
-    toggleMenu();
+    openMenu();
   }
 
 
-  pointerId=null;
+  pointerId=
+    null;
 
-  moved=false;
+
+  moved=
+    false;
 }
-
-
-button.addEventListener(
-  'pointerdown',
-  buttonPointerDown
-);
-
-
-button.addEventListener(
-  'pointermove',
-  buttonPointerMove
-);
 
 
 button.addEventListener(
@@ -2432,35 +2469,24 @@ button.addEventListener(
 
 
 /* =========================================================
-   Z 버튼 위치 복원
+   위치 복원
    ========================================================= */
 
 try{
 
-  const saved=
-
+  const pos=
     JSON.parse(
-
       localStorage.getItem(
         POS_KEY
-      )||
-
+      ) ||
       'null'
     );
 
 
   if(
-
-    saved&&
-
-    Number.isFinite(
-      saved.x
-    )&&
-
-    Number.isFinite(
-      saved.y
-    )
-
+    pos &&
+    Number.isFinite(pos.x) &&
+    Number.isFinite(pos.y)
   ){
 
     button.style.left=
@@ -2474,7 +2500,7 @@ try{
           innerWidth-
           49,
 
-          saved.x
+          pos.x
         )
       )+
 
@@ -2492,7 +2518,7 @@ try{
           innerHeight-
           49,
 
-          saved.y
+          pos.y
         )
       )+
 
@@ -2511,10 +2537,10 @@ try{
 
 
 /* =========================================================
-   메뉴 밖 클릭 시 닫기
+   바깥 클릭
    ========================================================= */
 
-function outsidePointerDown(event){
+function outsidePointer(event){
 
   if(
     menu.dataset.open!==
@@ -2525,19 +2551,17 @@ function outsidePointerDown(event){
 
 
   if(
-
     menu.contains(
       event.target
-    )||
+    ) ||
 
     button.contains(
       event.target
-    )||
+    ) ||
 
     addButton.contains(
       event.target
     )
-
   ){
     return;
   }
@@ -2549,73 +2573,16 @@ function outsidePointerDown(event){
 
 document.addEventListener(
   'pointerdown',
-  outsidePointerDown,
+  outsidePointer,
   true
 );
 
 
 /* =========================================================
-   화면 크기 변경
+   Resize
    ========================================================= */
 
 function onResize(){
-
-  const rect=
-    button
-      .getBoundingClientRect();
-
-
-  const x=
-
-    Math.max(
-
-      5,
-
-      Math.min(
-
-        innerWidth-
-        button.offsetWidth-
-        5,
-
-        rect.left
-      )
-    );
-
-
-  const y=
-
-    Math.max(
-
-      5,
-
-      Math.min(
-
-        innerHeight-
-        button.offsetHeight-
-        5,
-
-        rect.top
-      )
-    );
-
-
-  button.style.left=
-    x+
-    'px';
-
-
-  button.style.top=
-    y+
-    'px';
-
-
-  button.style.right=
-    'auto';
-
-
-  button.style.bottom=
-    'auto';
-
 
   if(
     menu.dataset.open===
@@ -2637,15 +2604,16 @@ window.addEventListener(
 
 /* =========================================================
    destroy
-   UI만 제거
-   Router는 유지
+
+   직접 호출할 때만 UI 제거.
+   재실행에서는 사용하지 않는다.
    ========================================================= */
 
 function destroy(){
 
   document.removeEventListener(
     'pointerdown',
-    outsidePointerDown,
+    outsidePointer,
     true
   );
 
@@ -2656,18 +2624,14 @@ function destroy(){
   );
 
 
-  [
-    BUTTON_ID,
-    MENU_ID,
-    ADD_ID,
-    MODAL_ID,
-    STYLE_ID
-  ].forEach(id=>{
-
-    document
-      .getElementById(id)
-      ?.remove();
-  });
+  Object.values(
+    IDS
+  ).forEach(
+    id=>
+      document
+        .getElementById(id)
+        ?.remove()
+  );
 
 
   try{
@@ -2690,23 +2654,22 @@ function destroy(){
 
 window[KEY]={
 
+  show,
+
   open:
     openMenu,
 
   close:
     closeMenu,
 
-  toggle:
-    toggleMenu,
+  ensureRouter,
 
   destroy,
-
-  ensureRouter,
 
   custom:{
 
     open:
-      openCustomManager,
+      openManager,
 
     read:
       readCustomTools
@@ -2732,10 +2695,6 @@ window[KEY]={
 };
 
 
-/* =========================================================
-   시작
-   ========================================================= */
-
 renderGrid();
 
 ensureRouter();
@@ -2743,17 +2702,8 @@ ensureRouter();
 updateRouterState();
 
 
-/*
- * 북마클릿 실행 직후에는
- * Z 버튼만 보임.
- *
- * 다시 북마클릿을 실행해도
- * 이 스크립트 자체가 UI를 재생성하므로
- * 버튼이 영구히 사라지는 문제 없음.
- */
-
 console.log(
-  '[ZETA Toolbox] READY'
+  '[ZETA Toolbox] READY 4.0'
 );
 
 })();
