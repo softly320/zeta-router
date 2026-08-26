@@ -88,10 +88,13 @@ function cleanItalics(text){
 
   text=String(text??'');
 
+
   /*
-   * \* → *
+   * \*지문\*
+   * ↓
+   * *지문*
    *
-   * escaped 별표를 먼저 일반 별표로 통일
+   * escaped asterisk를 먼저 일반 별표로 통일
    */
   text=text.replace(
     /\\\*/g,
@@ -100,36 +103,73 @@ function cleanItalics(text){
 
 
   /*
-   * 핵심:
+   * 보이지 않는 문자까지 일반 공백으로 통일.
    *
-   * *지문* *지문*
-   *         ^^^
-   * 가운데 "* *"를 공백 하나로 변경
-   *
-   * 동시에 단독 "* *"도 제거됨.
-   *
-   * 반복하는 이유는 한 번 지운 뒤
-   * 새로운 "* *"가 다시 맞닿을 수도 있기 때문.
+   * 모바일/웹 편집 과정에서
+   * NBSP, zero-width space 등이 섞여도 잡는다.
    */
-  let old;
-
-  do{
-
-    old=text;
-
-    text=text.replace(
-      /\*\s+\*/g,
-      ' '
-    );
-
-  }while(text!==old);
+  text=text.replace(
+    /[\u00A0\u200B\u200C\u200D\u2060\uFEFF]/g,
+    ' '
+  );
 
 
   /*
-   * 남은 공백 정리
+   * 핵심.
+   *
+   * *지문1* *지문2*
+   *
+   * 사이에는 실제 문자열상
+   *
+   *     * *
+   *
+   * 가 존재한다.
+   *
+   * 닫는 별표 + 공백 + 여는 별표를
+   * 통째로 공백 하나로 바꾼다.
+   *
+   * 결과:
+   *
+   * *지문1* *지문2*
+   * ↓
+   * *지문1 지문2*
+   */
+  let previous;
+
+  do{
+
+    previous=text;
+
+
+    text=text.replace(
+      /\*[ \t\r\n]+\*/g,
+      ' '
+    );
+
+
+  }while(text!==previous);
+
+
+  /*
+   * 혹시 남은 빈 italic 조각 제거
+   *
+   * * *
+   * *    *
+   */
+  text=text.replace(
+    /\*[ \t\r\n]*\*/g,
+    ''
+  );
+
+
+  /*
+   * 마지막 공백 정리
    */
   return text
-    .replace(/\s+/g,' ')
+    .replace(
+      /[ \t\r\n]+/g,
+      ' '
+    )
     .trim();
 }
 
