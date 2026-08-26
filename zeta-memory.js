@@ -1,986 +1,501 @@
-(()=>{
-'use strict';
+(()=>{'use strict';
+const K='__ZETA_RP_MEMORY_EDIT_V3__',STORE='__ZETA_RP_MEMORY_EDIT_STORE_V1__',ID='__zeta_rp_memory_edit_v3__';
+const START='[ZETA_RP_MEMORY]',END='[/ZETA_RP_MEMORY]';
 
-const KEY='__ZETA_RP_MEMORY_STANDALONE__';
-const STORE='__ZETA_RP_MEMORY_STANDALONE_V1__';
-const OLD_STORE='__ZETA_RP_MEMORY_V1__';
-const MARK='[ZETA_CONTINUITY_NOTES]';
-const ID='__zeta_rp_memory_standalone__';
-
-if(window[KEY]?.open){
-  window[KEY].open();
-  return;
-}
-
+if(window[K]?.open){window[K].open();return}
 document.getElementById(ID)?.remove();
 
-const chatKey=()=>
-  location.origin+location.pathname;
+const key=()=>location.origin+location.pathname;
+const all=()=>{try{const v=JSON.parse(localStorage.getItem(STORE)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch{return{}}};
+const read=()=>{const v=all()[key()]||{};return{text:String(v.text||''),interval:[3,5,10].includes(+v.interval)?+v.interval:0}};
+const save=p=>{const a=all(),v={...read(),...p};a[key()]={text:String(v.text||''),interval:[3,5,10].includes(+v.interval)?+v.interval:0,updatedAt:Date.now()};localStorage.setItem(STORE,JSON.stringify(a));refresh();return a[key()]};
 
-const readAll=()=>{
-  try{
-    const v=JSON.parse(
-      localStorage.getItem(STORE)||'{}'
-    );
-
-    return (
-      v&&
-      typeof v==='object'&&
-      !Array.isArray(v)
-    )?v:{};
-
-  }catch{
-    return {};
-  }
+const visible=e=>{
+  if(!e)return false;
+  const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+  return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';
 };
 
-const norm=(v={})=>({
-  text:String(v.text||''),
-
-  interval:
-    [3,5,10].includes(+v.interval)
-      ?+v.interval
-      :0,
-
-  count:
-    Math.max(
-      0,
-      +v.count||0
-    ),
-
-  armed:
-    !!v.armed,
-
-  lastSig:
-    String(v.lastSig||'')
-});
-
-const read=()=>
-  norm(
-    readAll()[chatKey()]
-  );
-
-const write=v=>{
-  const all=readAll();
-
-  all[chatKey()]={
-    ...norm(v),
-    updatedAt:Date.now()
-  };
-
-  localStorage.setItem(
-    STORE,
-    JSON.stringify(all)
-  );
-
-  refresh();
+const edits=()=>{
+  let a=[...document.querySelectorAll('button[data-testid="edit-button"]')];
+  if(!a.length)a=[...document.querySelectorAll('button[aria-label="Edit message"]')];
+  return a;
 };
 
-const patch=p=>
-  write({
-    ...read(),
-    ...p
-  });
+const latestEdit=()=>{
+  const a=edits().filter(visible);
+  return a.at(-1)||edits().at(-1)||null;
+};
 
+let baseline=false,turn=0,lastCount=edits().length,lastBtn=latestEdit();
+let busy=false,saveTimer=null,scanTimer=null,hideTimer=null,hiding=false;
 
-/* ==========================================
-   기존 내장 RP 메모가 있으면
-   텍스트만 새 저장소로 이관하고 자동주입 OFF
-   ========================================== */
+function block(text){
+  text=String(text||'')
+    .trim()
+    .replace(/\s*\n+\s*/g,' | ')
+    .replace(/\s{2,}/g,' ');
 
-(function migrate(){
-
-  try{
-
-    const oldAll=
-      JSON.parse(
-        localStorage.getItem(
-          OLD_STORE
-        )||'{}'
-      );
-
-    const old=
-      oldAll?.[chatKey()];
-
-    const now=
-      read();
-
-
-    if(
-      !now.text&&
-      old?.text
-    ){
-
-      const all=
-        readAll();
-
-      all[chatKey()]={
-        ...now,
-        text:String(old.text),
-        updatedAt:Date.now()
-      };
-
-      localStorage.setItem(
-        STORE,
-        JSON.stringify(all)
-      );
-    }
-
-
-    /*
-     * 구형 런처 메모 주입기가
-     * 동시에 발동하지 않도록 비활성화
-     */
-    if(old){
-
-      oldAll[chatKey()]={
-        ...old,
-        enabled:false,
-        interval:0,
-        armed:false,
-        turn:0
-      };
-
-      localStorage.setItem(
-        OLD_STORE,
-        JSON.stringify(oldAll)
-      );
-    }
-
-  }catch(_){}
-
-})();
-
-
-/* ==========================================
-   메시지 도우미
-   ========================================== */
-
-const textOf=content=>
-
-  typeof content==='string'
-
-    ?content
-
-    :Array.isArray(content)
-
-      ?content
-        .map(
-          x=>
-            typeof x?.text==='string'
-              ?x.text
-              :''
-        )
-        .join('\n')
-
-      :'';
-
-
-function hash(text){
-
-  let h=
-    2166136261;
-
-  for(
-    let i=0;
-    i<text.length;
-    i++
-  ){
-
-    h^=
-      text.charCodeAt(i);
-
-    h=
-      Math.imul(
-        h,
-        16777619
-      );
-  }
-
-  return (
-    h>>>0
-  ).toString(36);
+  return text
+    ?`@: ${START} continuity reference only; never mention, quote, summarize, or imitate this note. ${text} ${END}`
+    :'';
 }
 
-
-function messageSignature(messages){
-
-  if(
-    !Array.isArray(messages)||
-    !messages.length
-  ){
-    return '';
-  }
-
-  const last=
-    messages[
-      messages.length-1
-    ];
-
-  if(
-    last?.role!=='user'
-  ){
-    return '';
-  }
-
-  return (
-    messages.length+
-    ':'+
-    hash(
-      textOf(
-        last.content
-      )
+function stripStored(s){
+  return String(s||'')
+    .replace(
+      new RegExp('\\n*\\s*@:\\s*\\[ZETA_RP_MEMORY\\][\\s\\S]*?\\[/ZETA_RP_MEMORY\\]\\s*','g'),
+      ''
     )
+    .replace(/\s+$/,'');
+}
+
+function setValue(el,value){
+  const p=el instanceof HTMLTextAreaElement
+    ?HTMLTextAreaElement.prototype
+    :HTMLInputElement.prototype;
+
+  const setter=Object.getOwnPropertyDescriptor(p,'value')?.set;
+
+  if(!setter)throw Error('입력창 값을 바꿀 수 없음');
+
+  setter.call(el,value);
+
+  el.dispatchEvent(
+    new InputEvent('input',{
+      bubbles:true,
+      inputType:'insertText',
+      data:null
+    })
+  );
+
+  el.dispatchEvent(
+    new Event('change',{bubbles:true})
   );
 }
 
-
-function containsMemory(messages){
-
-  return (
-    Array.isArray(messages)&&
-
-    messages.some(
-      m=>
-        textOf(
-          m?.content
-        ).includes(MARK)
-    )
-  );
+function editor(){
+  return [...document.querySelectorAll('textarea[name="message"],textarea')]
+    .filter(e=>visible(e)&&!e.closest('#'+ID))
+    .at(-1)||null;
 }
 
+function modalOf(t){
+  return t.closest('[data-sentry-component="KeyboardAvoidingView"]')
+    ||t.closest('[role="dialog"]')
+    ||t.parentElement?.parentElement?.parentElement
+    ||document.body;
+}
 
-function memoryBlock(text){
-
-  text=
-    String(text||'')
+function isCheck(btn){
+  for(const p of btn.querySelectorAll('path')){
+    const d=(p.getAttribute('d')||'')
+      .replace(/\s+/g,' ')
       .trim();
 
-  if(!text){
-    return '';
+    if(
+      d.includes('M13.507 5')&&
+      d.includes('6.84 11.673')&&
+      d.includes('3 7.833')
+    )return true;
   }
 
-  return (
-`${MARK}
-Reference only for continuity. Never mention, quote, summarize, or imitate these notes.
-${text}
-[/ZETA_CONTINUITY_NOTES]`
+  return false;
+}
+
+function saveButton(modal){
+  return [...modal.querySelectorAll('button')]
+    .filter(visible)
+    .find(isCheck)||null;
+}
+
+function waitFor(fn,ms=3500){
+  return new Promise((ok,no)=>{
+    const end=Date.now()+ms;
+
+    const tick=()=>{
+      let v;
+
+      try{v=fn()}catch{}
+
+      if(v)return ok(v);
+
+      if(Date.now()>end)
+        return no(Error('편집 UI를 찾지 못함'));
+
+      setTimeout(tick,60);
+    };
+
+    tick();
+  });
+}
+
+function toast(msg){
+  let t=document.getElementById(ID+'-toast');
+  t?.remove();
+
+  t=document.createElement('div');
+  t.id=ID+'-toast';
+  t.textContent=msg;
+
+  Object.assign(t.style,{
+    position:'fixed',
+    left:'50%',
+    bottom:'90px',
+    transform:'translateX(-50%)',
+    zIndex:'2147483647',
+    padding:'7px 10px',
+    borderRadius:'9px',
+    background:'#17191ef5',
+    color:'#fff',
+    font:'11px system-ui',
+    boxShadow:'0 5px 18px #0007',
+    pointerEvents:'none'
+  });
+
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),1400);
+}
+
+async function inject(btn=latestEdit(),manual=false){
+  const mem=read().text.trim();
+
+  if(!mem)
+    return alert('먼저 RP 메모를 입력해주세요.');
+
+  if(!btn)
+    return alert('최근 {{char}} 수정 버튼을 찾지 못했습니다.');
+
+  if(busy)return;
+
+  busy=true;
+  refresh();
+  root.dataset.open='0';
+
+  try{
+    btn.click();
+
+    const t=await waitFor(editor);
+
+    const base=stripStored(t.value);
+
+    const next=(
+      base.trimEnd()+
+      '\n\n'+
+      block(mem)
+    ).trim();
+
+    setValue(t,next);
+
+    const m=modalOf(t);
+
+    const sb=await waitFor(()=>{
+      const b=saveButton(m);
+      return b&&!b.disabled?b:null;
+    });
+
+    sb.click();
+
+    turn=0;
+
+    await new Promise(r=>setTimeout(r,220));
+
+    lastCount=edits().length;
+    lastBtn=latestEdit();
+
+    scheduleHide();
+
+    toast(
+      manual
+        ?'지금 대화에 RP 메모 삽입됨'
+        :'RP 메모 자동 삽입됨'
+    );
+
+  }catch(e){
+    console.error('[ZETA RP MEMORY]',e);
+
+    alert(
+      'RP 메모 삽입 실패\n'+
+      (e?.message||e)
+    );
+
+  }finally{
+    busy=false;
+    refresh();
+  }
+}
+
+function setBaseline(){
+  const b=latestEdit();
+
+  if(!b)
+    return alert('기준점으로 잡을 {{char}} 답변을 찾지 못했습니다.');
+
+  baseline=true;
+  turn=0;
+  lastCount=edits().length;
+  lastBtn=b;
+
+  refresh();
+
+  toast(
+    '최근 {{char}} 답변을 기준점으로 설정'
   );
 }
 
+function scan(){
+  if(busy)return;
 
-/* ==========================================
-   이번 요청에 주입할지 결정
-   ========================================== */
+  const n=edits().length;
+  const v=read();
+  const latest=latestEdit();
 
-function decide(messages){
-
-  const v=
-    read();
-
-  const text=
-    v.text.trim();
-
-  if(!text){
-
-    return {
-      inject:false,
-      text:''
-    };
+  if(!baseline){
+    lastCount=n;
+    lastBtn=latest;
+    return;
   }
 
+  let delta=0;
 
-  const sig=
-    messageSignature(
-      messages
-    );
+  if(n>lastCount){
+    delta=Math.max(1,n-lastCount);
 
-
-  /*
-   * 1회 주입은 턴 카운터와 무관하게
-   * 무조건 다음 실제 요청에 발동
-   */
-  let inject=
-    !!v.armed;
-
-  let changed=
-    false;
-
-
-  if(v.armed){
-
-    v.armed=
-      false;
-
-    changed=
-      true;
-  }
-
-
-  /*
-   * 자동 주입 카운트
-   *
-   * 같은 사용자 메시지를 여러 요청에서
-   * 처리해도 1턴으로만 계산
-   */
-  if(
-    v.interval>0&&
-    sig&&
-    sig!==v.lastSig
+  }else if(
+    latest&&
+    latest!==lastBtn&&
+    lastBtn?.isConnected
   ){
+    delta=1;
+  }
 
-    v.lastSig=
-      sig;
+  lastCount=n;
+  lastBtn=latest;
 
-    v.count+=
-      1;
+  if(delta&&v.interval>0){
+    turn+=delta;
 
-    changed=
-      true;
+    if(turn>=v.interval){
+      inject(latest,false);
+      return;
+    }
 
+    refresh();
+  }
+}
+
+function scheduleScan(){
+  clearTimeout(scanTimer);
+  scanTimer=setTimeout(scan,120);
+}
+
+
+/* 화면에서 메모 블록 숨기기 */
+
+function smallestMarkerElements(){
+  const out=[];
+
+  for(const el of document.querySelectorAll('body *')){
+    if(
+      el.id===ID||
+      el.closest('#'+ID)||
+      ['SCRIPT','STYLE','TEXTAREA','INPUT'].includes(el.tagName)
+    )continue;
+
+    const tx=el.textContent||'';
 
     if(
-      v.count>=
-      v.interval
-    ){
+      !tx.includes(START)||
+      !tx.includes(END)
+    )continue;
 
-      inject=
-        true;
+    let child=false;
 
-      v.count=
-        0;
+    for(const c of el.children){
+      const ct=c.textContent||'';
+
+      if(
+        ct.includes(START)&&
+        ct.includes(END)
+      ){
+        child=true;
+        break;
+      }
     }
+
+    if(!child)out.push(el);
   }
-
-
-  if(changed){
-
-    write(v);
-  }
-
-
-  return {
-    inject,
-    text
-  };
-}
-
-
-/* ==========================================
-   messages에 실제 메모 삽입
-   ========================================== */
-
-function injectMessages(messages){
-
-  if(
-    containsMemory(
-      messages
-    )
-  ){
-
-    return messages;
-  }
-
-
-  const d=
-    decide(
-      messages
-    );
-
-
-  if(!d.inject){
-
-    return messages;
-  }
-
-
-  const out=
-    messages.slice();
-
-
-  let at=
-    0;
-
-
-  while(
-    at<out.length&&
-    [
-      'system',
-      'developer'
-    ].includes(
-      out[at]?.role
-    )
-  ){
-
-    at++;
-  }
-
-
-  out.splice(
-    at,
-    0,
-    {
-      role:'system',
-      content:
-        memoryBlock(
-          d.text
-        )
-    }
-  );
-
-
-  console.log(
-    '[ZETA MEMORY] injected'
-  );
-
 
   return out;
 }
 
+function stripVisual(el){
+  const walker=document.createTreeWalker(
+    el,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode:n=>{
+        const p=n.parentElement;
 
-/* ==========================================
-   payload 안쪽 messages 탐색
-   ========================================== */
-
-function injectDeep(
-  value,
-  depth=0
-){
-
-  if(
-    !value||
-    typeof value!=='object'||
-    depth>6
-  ){
-
-    return {
-      value,
-      changed:false,
-      found:false
-    };
-  }
-
-
-  if(
-    !Array.isArray(value)&&
-    Array.isArray(
-      value.messages
-    )
-  ){
-
-    const next=
-      injectMessages(
-        value.messages
-      );
-
-
-    return (
-      next===
-      value.messages
-    )
-
-      ?{
-          value,
-          changed:false,
-          found:true
-        }
-
-      :{
-          value:{
-            ...value,
-            messages:next
-          },
-
-          changed:true,
-          found:true
-        };
-  }
-
-
-  if(
-    Array.isArray(value)
-  ){
-
-    for(
-      let i=0;
-      i<value.length;
-      i++
-    ){
-
-      const r=
-        injectDeep(
-          value[i],
-          depth+1
-        );
-
-
-      if(r.found){
-
-        if(!r.changed){
-
-          return {
-            value,
-            changed:false,
-            found:true
-          };
-        }
-
-
-        const out=
-          value.slice();
-
-
-        out[i]=
-          r.value;
-
-
-        return {
-          value:out,
-          changed:true,
-          found:true
-        };
-      }
-    }
-
-
-    return {
-      value,
-      changed:false,
-      found:false
-    };
-  }
-
-
-  for(
-    const [
-      key,
-      item
-    ]
-    of Object.entries(value)
-  ){
-
-    if(
-      item&&
-      typeof item==='object'
-    ){
-
-      const r=
-        injectDeep(
-          item,
-          depth+1
-        );
-
-
-      if(r.found){
-
-        if(!r.changed){
-
-          return {
-            value,
-            changed:false,
-            found:true
-          };
-        }
-
-
-        return {
-          value:{
-            ...value,
-            [key]:r.value
-          },
-
-          changed:true,
-          found:true
-        };
-      }
-    }
-  }
-
-
-  return {
-    value,
-    changed:false,
-    found:false
-  };
-}
-
-
-/* ==========================================
-   JSON body 변환
-   ========================================== */
-
-function transformString(body){
-
-  if(
-    typeof body!=='string'
-  ){
-    return body;
-  }
-
-
-  const trimmed=
-    body.trim();
-
-
-  if(
-    !trimmed||
-    ![
-      '{',
-      '['
-    ].includes(
-      trimmed[0]
-    )
-  ){
-
-    return body;
-  }
-
-
-  try{
-
-    const parsed=
-      JSON.parse(body);
-
-
-    const r=
-      injectDeep(parsed);
-
-
-    return r.changed
-
-      ?JSON.stringify(
-          r.value
-        )
-
-      :body;
-
-
-  }catch(_){
-
-    return body;
-  }
-}
-
-
-/* ==========================================
-   요청 가로채기
-
-   fetch(init.body)
-   fetch(Request)
-   XMLHttpRequest
-   ========================================== */
-
-function installInjector(){
-
-  const baseFetch=
-    window.fetch;
-
-
-  const baseSend=
-    XMLHttpRequest
-      .prototype
-      .send;
-
-
-  window.fetch=
-    async function(
-      input,
-      init
-    ){
-
-      try{
-
-        /*
-         * 일반 fetch(url,{body})
-         */
         if(
-          init&&
-          typeof init.body==='string'
+          !p||
+          p.closest('#'+ID)||
+          ['SCRIPT','STYLE','TEXTAREA','INPUT'].includes(p.tagName)
         ){
-
-          const body=
-            transformString(
-              init.body
-            );
-
-
-          if(
-            body!==
-            init.body
-          ){
-
-            init={
-              ...init,
-              body
-            };
-          }
-
+          return NodeFilter.FILTER_REJECT;
         }
 
-
-        /*
-         * fetch(new Request(...))
-         */
-        else if(
-          input instanceof Request&&
-          !init?.body
-        ){
-
-          const contentType=
-            input.headers.get(
-              'content-type'
-            )||'';
-
-
-          if(
-            contentType.includes(
-              'application/json'
-            )
-          ){
-
-            const original=
-              await input
-                .clone()
-                .text();
-
-
-            const body=
-              transformString(
-                original
-              );
-
-
-            if(
-              body!==
-              original
-            ){
-
-              input=
-                new Request(
-                  input,
-                  {
-                    body
-                  }
-                );
-            }
-          }
-        }
-
-      }catch(error){
-
-        console.warn(
-          '[ZETA MEMORY] fetch inject failed',
-          error
-        );
+        return NodeFilter.FILTER_ACCEPT;
       }
-
-
-      return baseFetch.call(
-        this,
-        input,
-        init
-      );
-    };
-
-
-  XMLHttpRequest
-    .prototype
-    .send=
-      function(body){
-
-        try{
-
-          body=
-            transformString(
-              body
-            );
-
-        }catch(error){
-
-          console.warn(
-            '[ZETA MEMORY] xhr inject failed',
-            error
-          );
-        }
-
-
-        return baseSend.call(
-          this,
-          body
-        );
-      };
-}
-
-
-installInjector();
-
-
-/* ==========================================
-   UI
-   ========================================== */
-
-const root=
-  document.createElement(
-    'div'
+    }
   );
 
+  const nodes=[];
+  let n,text='';
 
-root.id=
-  ID;
+  while(n=walker.nextNode()){
+    nodes.push({
+      n,
+      start:text.length,
+      end:text.length+n.nodeValue.length
+    });
 
+    text+=n.nodeValue;
+  }
+
+  let s=text.indexOf(START);
+  if(s<0)return;
+
+  let e=text.indexOf(END,s);
+  if(e<0)return;
+
+  e+=END.length;
+
+  const pre=
+    text.slice(0,s)
+      .match(/\s*@:\s*$/);
+
+  if(pre)
+    s-=pre[0].length;
+
+  const a=
+    nodes.find(
+      x=>s>=x.start&&s<=x.end
+    );
+
+  const b=
+    [...nodes]
+      .reverse()
+      .find(
+        x=>e>=x.start&&e<=x.end
+      );
+
+  if(!a||!b)return;
+
+  const r=document.createRange();
+
+  r.setStart(
+    a.n,
+    Math.max(0,s-a.start)
+  );
+
+  r.setEnd(
+    b.n,
+    Math.max(0,e-b.start)
+  );
+
+  r.deleteContents();
+}
+
+function hideMemory(){
+  if(hiding)return;
+
+  hiding=true;
+
+  try{
+    smallestMarkerElements()
+      .forEach(stripVisual);
+
+  }catch(e){
+    console.warn(
+      '[ZETA RP MEMORY hide]',
+      e
+    );
+
+  }finally{
+    hiding=false;
+  }
+}
+
+function scheduleHide(){
+  clearTimeout(hideTimer);
+  hideTimer=setTimeout(hideMemory,80);
+}
+
+
+/* UI */
+
+const root=document.createElement('div');
+
+root.id=ID;
+root.dataset.open='0';
 
 root.innerHTML=`
-
 <style>
-
 #${ID}{
-position:fixed;
-inset:0;
-z-index:2147483647;
-display:none;
-align-items:center;
-justify-content:center;
-padding:16px;
-box-sizing:border-box;
-background:#0009;
-font-family:system-ui
+position:fixed;inset:0;z-index:2147483647;display:none;
+align-items:center;justify-content:center;padding:16px;
+box-sizing:border-box;background:#0009;font-family:system-ui
 }
-
-#${ID}[data-open="1"]{
-display:flex
-}
-
-#${ID} .card{
-width:min(430px,100%);
-max-height:86vh;
-overflow:auto;
-padding:16px;
-box-sizing:border-box;
-border:1px solid #ffffff20;
-border-radius:20px;
-background:#191b21;
-color:#fff;
+#${ID}[data-open="1"]{display:flex}
+#${ID} .c{
+width:min(430px,100%);max-height:86vh;overflow:auto;
+padding:15px;box-sizing:border-box;border:1px solid #ffffff20;
+border-radius:18px;background:#191b21;color:#fff;
 box-shadow:0 18px 60px #0008
 }
-
-#${ID} .head{
-display:flex;
-align-items:center;
-justify-content:space-between;
-margin-bottom:12px;
-font:750 15px system-ui
+#${ID} .h{
+display:flex;align-items:center;justify-content:space-between;
+margin-bottom:11px;font:750 15px system-ui
 }
-
-#${ID} .close{
-width:34px;
-height:34px;
-border:0;
-border-radius:10px;
-background:#ffffff12;
-color:#fff;
-font-size:18px
+#${ID} .x{
+width:34px;height:34px;border:0;border-radius:10px;
+background:#ffffff12;color:#fff;font-size:18px
 }
-
 #${ID} textarea{
-width:100%;
-min-height:230px;
-box-sizing:border-box;
-padding:11px;
-border:1px solid #ffffff1c;
-border-radius:12px;
-background:#ffffff0e;
-color:#fff;
-outline:none;
-resize:vertical;
+width:100%;min-height:210px;box-sizing:border-box;padding:11px;
+border:1px solid #ffffff1c;border-radius:12px;background:#ffffff0e;
+color:#fff;outline:none;resize:vertical;
 font:12px/1.55 ui-monospace,monospace
 }
-
-#${ID} .label{
-margin:11px 0 6px;
-color:#ffffff99;
-font-size:11px
+#${ID} .l{margin:10px 0 6px;color:#ffffff99;font-size:11px}
+#${ID} .iv{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+#${ID} button{touch-action:manipulation}
+#${ID} .b{
+height:38px;border:1px solid #ffffff18;border-radius:10px;
+background:#ffffff0a;color:#ffffffc4;font:700 11px system-ui
 }
-
-#${ID} .intervals{
-display:grid;
-grid-template-columns:repeat(4,1fr);
-gap:7px
+#${ID} .i[data-on="1"]{background:#6d88cf;color:#fff}
+#${ID} .row{
+display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px
 }
-
-#${ID} .iv,
-#${ID} .btn{
-height:38px;
-border:1px solid #ffffff18;
-border-radius:10px;
-background:#ffffff0a;
-color:#ffffffb8;
-font:700 11px system-ui
+#${ID} .base{background:#3f536f;color:#fff}
+#${ID} .now{background:#485f9b;color:#fff}
+#${ID} .s{
+margin-top:10px;padding:9px 10px;border-radius:10px;
+background:#ffffff09;color:#ffffff99;font-size:10px;line-height:1.5
 }
-
-#${ID} .iv[data-on="1"]{
-background:#6d88cf;
-color:#fff;
-border-color:#8ca4e3
+#${ID} .n{
+margin-top:8px;color:#ffffff60;font-size:10px;line-height:1.45
 }
-
-#${ID} .oneshot{
-width:100%;
-margin-top:10px;
-background:#485f9b;
-color:#fff
-}
-
-#${ID} .oneshot[data-armed="1"]{
-background:#875f32
-}
-
-#${ID} .status{
-margin-top:10px;
-padding:9px 10px;
-border-radius:10px;
-background:#ffffff09;
-color:#ffffff99;
-font-size:10px;
-line-height:1.4
-}
-
-#${ID} .foot{
-display:flex;
-gap:8px;
-margin-top:10px
-}
-
-#${ID} .clear{
-flex:1;
-color:#fca5a5
-}
-
-#${ID} .note{
-margin-top:9px;
-color:#ffffff61;
-font-size:10px;
-line-height:1.45
-}
-
 </style>
 
+<div class="c">
 
-<div class="card">
-
-<div class="head">
-
-<span>
-📌 RP MEMORY
-</span>
-
-<button
-class="close"
-type="button">
-×
-</button>
-
+<div class="h">
+<span>📌 RP MEMORY</span>
+<button class="x" type="button">×</button>
 </div>
-
 
 <textarea
 class="mem"
@@ -990,390 +505,179 @@ placeholder="현재 장소: 집 거실
 ㅇㅇ는 사건의 진실을 모름"
 ></textarea>
 
-
-<div class="label">
-자동주입 주기
+<div class="l">
+자동 삽입 주기
 </div>
 
+<div class="iv">
+<button class="b i" data-i="0">OFF</button>
+<button class="b i" data-i="3">3턴</button>
+<button class="b i" data-i="5">5턴</button>
+<button class="b i" data-i="10">10턴</button>
+</div>
 
-<div class="intervals">
+<div class="row">
 
 <button
-class="iv"
-data-i="0"
+class="b base"
 type="button">
-OFF
+📍 최근 답변을 기준점으로
 </button>
 
 <button
-class="iv"
-data-i="3"
+class="b now"
 type="button">
-3턴
-</button>
-
-<button
-class="iv"
-data-i="5"
-type="button">
-5턴
-</button>
-
-<button
-class="iv"
-data-i="10"
-type="button">
-10턴
+📌 지금 대화에 넣기
 </button>
 
 </div>
 
+<div class="s"></div>
 
-<button
-class="btn oneshot"
-type="button">
-다음 답변에 1회 주입
-</button>
-
-
-<div class="status"></div>
-
-
-<div class="foot">
-
-<button
-class="btn clear"
-type="button">
-메모 비우기
-</button>
-
-</div>
-
-
-<div class="note">
-화면 채팅에는 표시되지 않음.
-OFF여도 1회 주입 가능.
-입력 내용은 자동 저장됨.
+<div class="n">
+기준점 이후 새 {{char}} 답변만 셉니다.
+자동 삽입 시 최근 {{char}} 메시지를 수정해 숨은 @: 메모를 심습니다.
 </div>
 
 </div>
 `;
 
+(document.body||document.documentElement)
+  .appendChild(root);
 
-(
-  document.body||
-  document.documentElement
-).appendChild(root);
-
-
-const textarea=
-  root.querySelector(
-    '.mem'
-  );
-
-
-const status=
-  root.querySelector(
-    '.status'
-  );
-
-
-const oneShot=
-  root.querySelector(
-    '.oneshot'
-  );
-
-
-let saveTimer=
-  null;
-
-
-function statusText(v){
-
-  if(v.armed){
-
-    if(v.interval>0){
-
-      return (
-        '다음 답변 1회 주입 대기 · '+
-        '자동주입 '+
-        Math.max(
-          1,
-          v.interval-
-          v.count
-        )+
-        '턴 후'
-      );
-    }
-
-
-    return (
-      '다음 답변 1회 주입 대기'
-    );
-  }
-
-
-  if(v.interval>0){
-
-    return (
-      '자동주입 ON · '+
-      '다음 주입까지 '+
-      Math.max(
-        1,
-        v.interval-
-        v.count
-      )+
-      '턴'
-    );
-  }
-
-
-  return (
-    '자동주입 OFF'
-  );
-}
-
+const ta=root.querySelector('.mem');
+const status=root.querySelector('.s');
 
 function refresh(){
-
-  if(
-    !document.getElementById(
-      ID
-    )
-  ){
+  if(!document.getElementById(ID))
     return;
-  }
 
+  const v=read();
 
-  const v=
-    read();
+  if(document.activeElement!==ta)
+    ta.value=v.text;
 
-
-  if(
-    document.activeElement!==
-    textarea
-  ){
-
-    textarea.value=
-      v.text;
-  }
-
-
-  root
-    .querySelectorAll(
-      '.iv'
-    )
+  root.querySelectorAll('.i')
     .forEach(
-      button=>{
-
-        button.dataset.on=
-
-          +button.dataset.i===
-          v.interval
-
+      b=>
+        b.dataset.on=
+          +b.dataset.i===v.interval
             ?'1'
-            :'0';
-      }
+            :'0'
     );
-
-
-  oneShot.dataset.armed=
-
-    v.armed
-      ?'1'
-      :'0';
-
-
-  oneShot.textContent=
-
-    v.armed
-
-      ?'1회 주입 취소'
-
-      :'다음 답변에 1회 주입';
-
 
   status.textContent=
-    statusText(v);
-}
+    !baseline
 
+      ?`기준점 없음 · 자동 ${
+          v.interval
+            ?v.interval+'턴'
+            :'OFF'
+        }`
+
+      :`기준점 설정됨 · 자동 ${
+          v.interval
+            ?v.interval+'턴'
+            :'OFF'
+        }${
+          v.interval
+            ?' · '+turn+'/'+v.interval+'턴'
+            :''
+        }${
+          busy
+            ?' · 처리 중'
+            :''
+        }`;
+}
 
 function open(){
-
   refresh();
-
-  root.dataset.open=
-    '1';
+  root.dataset.open='1';
 }
-
 
 function close(){
-
-  root.dataset.open=
-    '0';
+  root.dataset.open='0';
 }
 
-
-textarea.addEventListener(
+ta.addEventListener(
   'input',
   ()=>{
+    clearTimeout(saveTimer);
 
-    clearTimeout(
-      saveTimer
+    saveTimer=setTimeout(
+      ()=>save({
+        text:ta.value
+      }),
+      250
     );
-
-
-    saveTimer=
-      setTimeout(
-        ()=>{
-
-          patch({
-            text:
-              textarea.value
-          });
-
-        },
-        250
-      );
   }
 );
 
-
-root
-  .querySelectorAll(
-    '.iv'
-  )
+root.querySelectorAll('.i')
   .forEach(
-    button=>{
-
-      button.addEventListener(
+    b=>
+      b.addEventListener(
         'click',
         ()=>{
-
-          patch({
-
-            interval:
-              +button.dataset.i,
-
-            count:0,
-
-            lastSig:''
+          save({
+            interval:+b.dataset.i
           });
+
+          turn=0;
+          lastCount=edits().length;
+          lastBtn=latestEdit();
+
+          refresh();
         }
-      );
-    }
+      )
   );
 
+root.querySelector('.base').onclick=
+  setBaseline;
 
-oneShot.addEventListener(
-  'click',
-  ()=>{
+root.querySelector('.now').onclick=
+  ()=>inject(latestEdit(),true);
 
-    const v=
-      read();
+root.querySelector('.x').onclick=
+  close;
 
+root.onpointerdown=e=>{
+  if(e.target===root)
+    close();
+};
 
-    const text=
-      textarea.value.trim();
-
-
-    if(
-      !text&&
-      !v.armed
-    ){
-
-      return alert(
-        '먼저 RP 메모를 입력해주세요.'
-      );
-    }
-
-
-    patch({
-
-      text:
-        textarea.value,
-
-      armed:
-        !v.armed
-    });
-  }
-);
-
-
-root
-  .querySelector(
-    '.clear'
-  )
-  .addEventListener(
-    'click',
+const mo=
+  new MutationObserver(
     ()=>{
-
-      if(
-        textarea.value.trim()&&
-        !confirm(
-          '이 채팅방 RP 메모를 비울까요?'
-        )
-      ){
-
-        return;
-      }
-
-
-      textarea.value=
-        '';
-
-
-      patch({
-        text:'',
-        armed:false,
-        count:0,
-        lastSig:''
-      });
+      scheduleScan();
+      scheduleHide();
     }
   );
 
-
-root
-  .querySelector(
-    '.close'
-  )
-  .addEventListener(
-    'click',
-    close
-  );
-
-
-root.addEventListener(
-  'pointerdown',
-  event=>{
-
-    if(
-      event.target===
-      root
-    ){
-
-      close();
-    }
+mo.observe(
+  document.body,
+  {
+    subtree:true,
+    childList:true,
+    characterData:true
   }
 );
 
-
-window[KEY]={
+window[K]={
   open,
   close,
   read,
-  patch,
-  version:'1.0'
+  inject:()=>inject(latestEdit(),true),
+  baseline:setBaseline,
+  version:'3.0'
 };
 
-
 refresh();
-
+scheduleHide();
 open();
 
-
 console.log(
-  '[ZETA RP MEMORY] standalone ready'
+  '[ZETA RP MEMORY] edit-based v3 ready'
 );
 
 })();
