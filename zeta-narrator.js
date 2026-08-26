@@ -1,178 +1,133 @@
 (()=>{
 'use strict';
 
-const ID='zeta-roleplay-formatter-v9-2';
+const ID='zeta-roleplay-formatter-v9-3';
 const POS_KEY='zetaFormatterPosition';
 const MODE_KEY='zetaFormatterRemoveNarrator';
 
-document
-  .querySelectorAll(
-    '[id^="zeta-roleplay-formatter-"]'
-  )
-  .forEach(e=>e.remove());
+document.querySelectorAll('[id^="zeta-roleplay-formatter-"]').forEach(e=>e.remove());
 
-let removeNarrator=
-  localStorage.getItem(MODE_KEY)==='1';
-
+let removeNarrator=localStorage.getItem(MODE_KEY)==='1';
 let editObserver=null;
 let saveObserver=null;
 let processed=null;
 
 const visible=e=>{
   if(!e)return false;
-
-  const r=
-    e.getBoundingClientRect();
-
-  const s=
-    getComputedStyle(e);
-
-  return (
-    r.width>0&&
-    r.height>0&&
-    s.display!=='none'&&
-    s.visibility!=='hidden'
-  );
+  const r=e.getBoundingClientRect(),s=getComputedStyle(e);
+  return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';
 };
 
-function toast(
-  msg,
-  type='normal'
-){
+function toast(msg,type='normal'){
+  document.getElementById(ID+'-toast')?.remove();
 
-  document
-    .getElementById(
-      ID+'-toast'
-    )
-    ?.remove();
+  const t=document.createElement('div');
 
-  const t=
-    document.createElement('div');
+  t.id=ID+'-toast';
+  t.textContent=msg;
 
-  t.id=
-    ID+'-toast';
-
-  t.textContent=
-    msg;
-
-  Object.assign(
-    t.style,
-    {
-      position:'fixed',
-      zIndex:'2147483647',
-      padding:'6px 9px',
-      borderRadius:'8px',
-
-      background:
-        type==='error'
-          ? 'rgba(127,29,29,.97)'
-          : type==='ok'
-            ? 'rgba(20,83,45,.97)'
-            : 'rgba(24,24,27,.97)',
-
-      border:
-        '1px solid rgba(255,255,255,.08)',
-
-      color:'#fff',
-
-      font:
-        '11px system-ui,sans-serif',
-
-      boxShadow:
-        '0 4px 16px rgba(0,0,0,.28)',
-
-      backdropFilter:
-        'blur(8px)',
-
-      pointerEvents:'none',
-      opacity:'0',
-
-      transform:
-        'translateY(3px)',
-
-      transition:
-        'opacity .12s ease,transform .12s ease'
-    }
-  );
+  Object.assign(t.style,{
+    position:'fixed',
+    zIndex:'2147483647',
+    padding:'6px 9px',
+    borderRadius:'8px',
+    background:
+      type==='error'
+        ?'rgba(127,29,29,.97)'
+        :type==='ok'
+          ?'rgba(20,83,45,.97)'
+          :'rgba(24,24,27,.97)',
+    border:'1px solid rgba(255,255,255,.08)',
+    color:'#fff',
+    font:'11px system-ui,sans-serif',
+    boxShadow:'0 4px 16px rgba(0,0,0,.28)',
+    backdropFilter:'blur(8px)',
+    pointerEvents:'none',
+    opacity:'0',
+    transform:'translateY(3px)',
+    transition:'opacity .12s ease,transform .12s ease'
+  });
 
   document.body.appendChild(t);
 
-  const b=
-    wrap.getBoundingClientRect();
+  const b=wrap.getBoundingClientRect();
 
   t.style.left=
     Math.min(
-      innerWidth-
-      t.offsetWidth-
-      5,
-
+      innerWidth-t.offsetWidth-5,
       Math.max(
         5,
-        b.left+
-        b.width/2-
-        t.offsetWidth/2
+        b.left+b.width/2-t.offsetWidth/2
       )
     )+'px';
 
   t.style.top=
     Math.max(
       5,
-      b.top-
-      t.offsetHeight-
-      6
+      b.top-t.offsetHeight-6
     )+'px';
 
-  requestAnimationFrame(
-    ()=>{
-      t.style.opacity='1';
-      t.style.transform=
-        'translateY(0)';
-    }
-  );
+  requestAnimationFrame(()=>{
+    t.style.opacity='1';
+    t.style.transform='translateY(0)';
+  });
 
-  setTimeout(
-    ()=>{
-      t.style.opacity='0';
-
-      t.style.transform=
-        'translateY(3px)';
-
-      setTimeout(
-        ()=>t.remove(),
-        150
-      );
-    },
-    1300
-  );
+  setTimeout(()=>{
+    t.style.opacity='0';
+    t.style.transform='translateY(3px)';
+    setTimeout(()=>t.remove(),150);
+  },1300);
 }
+
+
+/* =========================================================
+   별표 지문 정리
+   ========================================================= */
 
 function cleanItalics(text){
 
-  text=
-    text.replace(
-      /\\\*\s\*\\\*/g,
-      ' '
-    );
+  text=String(text??'');
 
+  /*
+   * \*지문\*
+   * ↓
+   * *지문*
+   *
+   * escaped italic 표기를 먼저 일반 표기로 통일
+   */
+  text=text.replace(
+    /\\\*([^*\n]+?)\\\*/g,
+    (_,body)=>`*${body.trim()}*`
+  );
+
+
+  /*
+   * *지문1* *지문2*
+   * ↓
+   * *지문1 지문2*
+   *
+   * 여러 개가 이어져 있으면 반복해서 전부 합침
+   */
   let old;
 
   do{
 
     old=text;
 
-    text=
-      text.replace(
-        /\\\*([^\*]+?)\\\*\s\*\\\*([^\*]+?)\\\*/g,
-        (_,a,b)=>
-          `*${a.trim()} ${b.trim()}*`
-      );
+    text=text.replace(
+      /\*([^*\n]+?)\*\s*\*([^*\n]+?)\*/g,
+      (_,a,b)=>
+        `*${a.trim()} ${b.trim()}*`
+    );
 
   }while(text!==old);
+
 
   return text
     .replace(/\s+/g,' ')
     .trim();
 }
+
 
 function formatText(input){
 
@@ -188,10 +143,10 @@ function formatText(input){
 
   for(const raw of lines){
 
-    const line=
-      raw.trim();
+    const line=raw.trim();
 
     if(!line)continue;
+
 
     const narrator=
       line.match(
@@ -214,6 +169,7 @@ function formatText(input){
       continue;
     }
 
+
     const character=
       line.match(
         /^@\s*([^:\n]+?)\s*:\s*(.*)$/
@@ -229,10 +185,7 @@ function formatText(input){
       const text=
         character[2].trim();
 
-      if(
-        !characterName&&
-        name
-      ){
+      if(!characterName&&name){
         characterName=name;
       }
 
@@ -242,6 +195,7 @@ function formatText(input){
 
       continue;
     }
+
 
     if(mode==='narrator'){
 
@@ -255,31 +209,33 @@ function formatText(input){
     }
   }
 
+
   if(!characterName){
+
     throw new Error(
       '캐릭터명(@이름:)을 찾지 못했습니다.'
     );
   }
+
 
   const content=
     cleanItalics(
       parts.join(' ')
     );
 
+
   return (
     `@${characterName}:`+
     (
       content
-        ? ' '+content
-        : ''
+        ?' '+content
+        :''
     )
   );
 }
 
-function setReactValue(
-  el,
-  value
-){
+
+function setReactValue(el,value){
 
   const setter=
     Object
@@ -289,16 +245,20 @@ function setReactValue(
       )
       ?.set;
 
+
   if(!setter){
+
     throw new Error(
       'textarea 값을 변경할 수 없습니다.'
     );
   }
 
+
   setter.call(
     el,
     value
   );
+
 
   el.dispatchEvent(
     new InputEvent(
@@ -311,6 +271,7 @@ function setReactValue(
     )
   );
 
+
   el.dispatchEvent(
     new Event(
       'change',
@@ -321,6 +282,7 @@ function setReactValue(
   );
 }
 
+
 function stop(){
 
   editObserver?.disconnect();
@@ -329,6 +291,7 @@ function stop(){
   editObserver=null;
   saveObserver=null;
 }
+
 
 function finish(){
 
@@ -344,6 +307,7 @@ function finish(){
   processed=null;
 }
 
+
 function findEditor(){
 
   const editors=[
@@ -352,11 +316,10 @@ function findEditor(){
     )
   ].filter(visible);
 
-  return (
-    editors.at(-1)||
-    null
-  );
+
+  return editors.at(-1)||null;
 }
+
 
 function getModal(textarea){
 
@@ -371,6 +334,7 @@ function getModal(textarea){
     document.body
   );
 }
+
 
 function isCheckButton(btn){
 
@@ -387,6 +351,7 @@ function isCheckButton(btn){
       .replace(/\s+/g,' ')
       .trim();
 
+
     if(
       d.includes('M13.507 5')&&
       d.includes('6.84 11.673')&&
@@ -398,6 +363,7 @@ function isCheckButton(btn){
 
   return false;
 }
+
 
 function findSaveButton(modal){
 
@@ -411,17 +377,18 @@ function findSaveButton(modal){
   null;
 }
 
-function saveWhenReady(
-  textarea
-){
+
+function saveWhenReady(textarea){
 
   const modal=
     getModal(textarea);
+
 
   const attempt=()=>{
 
     const save=
       findSaveButton(modal);
+
 
     if(
       save&&
@@ -429,33 +396,43 @@ function saveWhenReady(
     ){
 
       saveObserver?.disconnect();
+
       saveObserver=null;
+
 
       save.click();
 
+
       finish();
+
 
       toast(
         removeNarrator
-          ? '나레이터 삭제 + 저장 완료'
-          : '전체 합치기 + 저장 완료',
+          ?'나레이터 삭제 + 저장 완료'
+          :'전체 합치기 + 저장 완료',
         'ok'
       );
+
 
       return true;
     }
 
+
     return false;
   };
 
+
   if(attempt())return;
 
+
   saveObserver?.disconnect();
+
 
   saveObserver=
     new MutationObserver(
       attempt
     );
+
 
   saveObserver.observe(
     modal,
@@ -470,15 +447,18 @@ function saveWhenReady(
     }
   );
 
+
   requestAnimationFrame(
     attempt
   );
 }
 
+
 function processEditor(){
 
   const textarea=
     findEditor();
+
 
   if(
     !textarea||
@@ -487,6 +467,7 @@ function processEditor(){
     return false;
   }
 
+
   try{
 
     const formatted=
@@ -494,20 +475,26 @@ function processEditor(){
         textarea.value
       );
 
+
     processed=
       textarea;
+
 
     setReactValue(
       textarea,
       formatted
     );
 
+
     editObserver?.disconnect();
+
     editObserver=null;
+
 
     saveWhenReady(
       textarea
     );
+
 
     return true;
 
@@ -515,15 +502,18 @@ function processEditor(){
 
     finish();
 
+
     toast(
       e.message||
       '변환 실패',
       'error'
     );
 
+
     return true;
   }
 }
+
 
 function getEditButton(){
 
@@ -532,6 +522,7 @@ function getEditButton(){
       'button[data-testid="edit-button"]'
     )
   ].filter(visible);
+
 
   if(!buttons.length){
 
@@ -542,11 +533,10 @@ function getEditButton(){
     ].filter(visible);
   }
 
-  return (
-    buttons.at(-1)||
-    null
-  );
+
+  return buttons.at(-1)||null;
 }
+
 
 function run(){
 
@@ -556,34 +546,43 @@ function run(){
     return;
   }
 
+
   processed=null;
 
+
   runBtn.dataset.busy='1';
+
 
   runBtn.style.opacity='.45';
   runBtn.style.pointerEvents='none';
 
   toggleBtn.style.pointerEvents='none';
 
+
   const edit=
     getEditButton();
+
 
   if(!edit){
 
     finish();
+
 
     toast(
       '수정 버튼을 찾지 못했습니다.',
       'error'
     );
 
+
     return;
   }
+
 
   editObserver=
     new MutationObserver(
       processEditor
     );
+
 
   editObserver.observe(
     document.body,
@@ -599,16 +598,20 @@ function run(){
     }
   );
 
+
   edit.click();
+
 
   queueMicrotask(
     processEditor
   );
 
+
   requestAnimationFrame(
     processEditor
   );
 }
+
 
 function updateToggle(){
 
@@ -619,17 +622,21 @@ function updateToggle(){
     toggleBtn.title=
       '나레이터 삭제 ON';
 
+
     toggleBtn.setAttribute(
       'aria-label',
       '나레이터 삭제 ON'
     );
+
 
     Object.assign(
       toggleBtn.style,
       {
         background:
           'linear-gradient(135deg,#ef4444,#dc2626)',
+
         color:'#fff',
+
         boxShadow:
           'inset 0 0 0 1px rgba(255,255,255,.10),0 0 10px rgba(239,68,68,.28)'
       }
@@ -642,26 +649,35 @@ function updateToggle(){
     toggleBtn.title=
       '나레이터 삭제 OFF';
 
+
     toggleBtn.setAttribute(
       'aria-label',
       '나레이터 삭제 OFF'
     );
 
+
     Object.assign(
       toggleBtn.style,
       {
         background:'transparent',
-        color:'rgba(255,255,255,.48)',
+
+        color:
+          'rgba(255,255,255,.48)',
+
         boxShadow:'none'
       }
     );
   }
 }
 
+
 const wrap=
   document.createElement('div');
 
-wrap.id=ID;
+
+wrap.id=
+  ID;
+
 
 Object.assign(
   wrap.style,
@@ -669,6 +685,7 @@ Object.assign(
     position:'fixed',
     display:'flex',
     alignItems:'center',
+
     height:'32px',
 
     border:
@@ -695,30 +712,37 @@ Object.assign(
     touchAction:'none',
 
     userSelect:'none',
+
     WebkitUserSelect:'none'
   }
 );
+
 
 const runBtn=
   document.createElement(
     'button'
   );
 
+
 runBtn.type='button';
+
 
 runBtn.title=
   '탭: 실행 / 드래그: 이동';
+
 
 runBtn.setAttribute(
   'aria-label',
   'Zeta RP 정리 실행'
 );
 
+
 runBtn.innerHTML=
   '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">'+
   '<path d="M12 2l1.2 4.2L17.5 7.5l-4.3 1.3L12 13l-1.2-4.2-4.3-1.3 4.3-1.3L12 2Z" fill="currentColor"/>'+
   '<path d="M18 13.5l.65 1.85L20.5 16l-1.85.65L18 18.5l-.65-1.85L15.5 16l1.85-.65L18 13.5Z" fill="currentColor"/>'+
   '</svg>';
+
 
 Object.assign(
   runBtn.style,
@@ -737,7 +761,9 @@ Object.assign(
       'rgba(255,255,255,.9)',
 
     display:'flex',
+
     alignItems:'center',
+
     justifyContent:'center',
 
     cursor:'grab',
@@ -751,12 +777,15 @@ Object.assign(
   }
 );
 
+
 const toggleBtn=
   document.createElement(
     'button'
   );
 
+
 toggleBtn.type='button';
+
 
 Object.assign(
   toggleBtn.style,
@@ -767,7 +796,9 @@ Object.assign(
     border:'0',
 
     display:'flex',
+
     alignItems:'center',
+
     justifyContent:'center',
 
     cursor:'pointer',
@@ -781,10 +812,12 @@ Object.assign(
   }
 );
 
+
 const toggleLabel=
   document.createElement(
     'span'
   );
+
 
 Object.assign(
   toggleLabel.style,
@@ -798,11 +831,14 @@ Object.assign(
   }
 );
 
+
 toggleBtn.appendChild(
   toggleLabel
 );
 
+
 updateToggle();
+
 
 toggleBtn.addEventListener(
   'click',
@@ -810,43 +846,56 @@ toggleBtn.addEventListener(
 
     e.stopPropagation();
 
+
     removeNarrator=
       !removeNarrator;
 
+
     localStorage.setItem(
       MODE_KEY,
-      removeNarrator?'1':'0'
+      removeNarrator
+        ?'1'
+        :'0'
     );
+
 
     updateToggle();
 
+
     toast(
       removeNarrator
-        ? '나레이터 삭제 ON'
-        : '나레이터 삭제 OFF',
+        ?'나레이터 삭제 ON'
+        :'나레이터 삭제 OFF',
 
       removeNarrator
-        ? 'ok'
-        : 'normal'
+        ?'ok'
+        :'normal'
     );
   }
 );
+
 
 wrap.append(
   runBtn,
   toggleBtn
 );
 
+
 let saved=null;
 
+
 try{
+
   saved=
     JSON.parse(
       localStorage.getItem(
         POS_KEY
-      )||'null'
+      )||
+      'null'
     );
+
 }catch(_){}
+
 
 if(
   saved&&
@@ -863,6 +912,7 @@ if(
       )
     )+'px';
 
+
   wrap.style.top=
     Math.max(
       4,
@@ -878,15 +928,15 @@ if(
   wrap.style.bottom='12px';
 }
 
+
 document.body.appendChild(
   wrap
 );
 
 
-/*
- * 모바일 웨일에서도 드래그가 끊기지 않게
- * document 전체에서 이동/종료 이벤트를 추적
- */
+/* =========================================================
+   모바일 드래그
+   ========================================================= */
 
 let dragging=false;
 let moved=false;
@@ -898,6 +948,7 @@ let startY=0;
 let originX=0;
 let originY=0;
 
+
 function dragStart(e){
 
   if(
@@ -906,13 +957,16 @@ function dragStart(e){
     return;
   }
 
+
   dragging=true;
   moved=false;
 
   pid=e.pointerId;
 
+
   const r=
     wrap.getBoundingClientRect();
+
 
   startX=e.clientX;
   startY=e.clientY;
@@ -920,27 +974,36 @@ function dragStart(e){
   originX=r.left;
   originY=r.top;
 
+
   wrap.style.left=
     r.left+'px';
+
 
   wrap.style.top=
     r.top+'px';
 
+
   wrap.style.right='auto';
   wrap.style.bottom='auto';
+
 
   runBtn.style.cursor=
     'grabbing';
 
+
   try{
+
     runBtn.setPointerCapture(
       pid
     );
+
   }catch(_){}
+
 
   e.preventDefault();
   e.stopPropagation();
 }
+
 
 function dragMove(e){
 
@@ -951,20 +1014,28 @@ function dragMove(e){
     return;
   }
 
+
   const dx=
     e.clientX-startX;
+
 
   const dy=
     e.clientY-startY;
 
+
   if(
     !moved&&
-    Math.hypot(dx,dy)>=5
+    Math.hypot(
+      dx,
+      dy
+    )>=5
   ){
     moved=true;
   }
 
+
   if(!moved)return;
+
 
   const x=
     Math.max(
@@ -977,6 +1048,7 @@ function dragMove(e){
       )
     );
 
+
   const y=
     Math.max(
       4,
@@ -988,15 +1060,19 @@ function dragMove(e){
       )
     );
 
+
   wrap.style.left=
     x+'px';
+
 
   wrap.style.top=
     y+'px';
 
+
   e.preventDefault();
   e.stopPropagation();
 }
+
 
 function dragEnd(e){
 
@@ -1010,42 +1086,59 @@ function dragEnd(e){
     return;
   }
 
+
   dragging=false;
 
-  runBtn.style.cursor='grab';
+
+  runBtn.style.cursor=
+    'grab';
+
 
   try{
+
     runBtn.releasePointerCapture(
       pid
     );
+
   }catch(_){}
+
 
   const r=
     wrap.getBoundingClientRect();
 
+
   localStorage.setItem(
+
     POS_KEY,
+
     JSON.stringify({
       x:r.left,
       y:r.top
     })
   );
 
+
   const shouldRun=
     !moved;
+
 
   moved=false;
   pid=null;
 
+
   if(shouldRun){
+
     run();
   }
 
+
   if(e){
+
     e.preventDefault();
     e.stopPropagation();
   }
 }
+
 
 runBtn.addEventListener(
   'pointerdown',
@@ -1054,6 +1147,7 @@ runBtn.addEventListener(
     passive:false
   }
 );
+
 
 document.addEventListener(
   'pointermove',
@@ -1064,6 +1158,7 @@ document.addEventListener(
   }
 );
 
+
 document.addEventListener(
   'pointerup',
   dragEnd,
@@ -1072,6 +1167,7 @@ document.addEventListener(
     passive:false
   }
 );
+
 
 document.addEventListener(
   'pointercancel',
@@ -1082,12 +1178,14 @@ document.addEventListener(
   }
 );
 
+
 window.addEventListener(
   'resize',
   ()=>{
 
     const r=
       wrap.getBoundingClientRect();
+
 
     const x=
       Math.max(
@@ -1100,6 +1198,7 @@ window.addEventListener(
         )
       );
 
+
     const y=
       Math.max(
         4,
@@ -1111,16 +1210,21 @@ window.addEventListener(
         )
       );
 
+
     wrap.style.left=
       x+'px';
+
 
     wrap.style.top=
       y+'px';
 
+
     wrap.style.right='auto';
     wrap.style.bottom='auto';
 
+
     try{
+
       localStorage.setItem(
         POS_KEY,
         JSON.stringify({
@@ -1128,14 +1232,16 @@ window.addEventListener(
           y
         })
       );
+
     }catch(_){}
   }
 );
 
+
 toast(
   removeNarrator
-    ? '나레이터 삭제 ON'
-    : '나레이터 삭제 OFF',
+    ?'나레이터 삭제 ON'
+    :'나레이터 삭제 OFF',
   'ok'
 );
 
