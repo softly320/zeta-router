@@ -3,9 +3,10 @@
 
 const KEY='__ZETA_TOOLBOX_LAUNCHER__';
 const ROUTER_KEY='__ZETA_OR_ROUTER_BOOKMARKLET_V1__';
-const MEMORY_INJECTOR_KEY='__ZETA_RP_MEMORY_INJECTOR__';
-const MEMORY_STORE_KEY='__ZETA_RP_MEMORY_V1__';
-const MEMORY_MARK='[ZETA RP MEMORY]';
+const MEM_PATCH='__ZETA_RP_MEMORY_INJECTOR_V2__';
+const MEM_STORE='__ZETA_RP_MEMORY_V1__';
+const MEM_MARK='[continuity notes]';
+const MEM_EVT='__zeta_rp_memory_change__';
 const RAW='https://raw.githubusercontent.com/softly320/zeta-router/main/';
 
 const URLS={
@@ -21,687 +22,557 @@ const IDS={
   button:'__zeta_toolbox_button__',
   menu:'__zeta_toolbox_menu__',
   add:'__zeta_toolbox_add_button__',
-  customModal:'__zeta_toolbox_custom_modal__',
-  memoryModal:'__zeta_toolbox_memory_modal__',
+  custom:'__zeta_toolbox_custom_modal__',
+  memory:'__zeta_toolbox_memory_modal__',
   style:'__zeta_toolbox_style__'
 };
 
 const POS_KEY='__ZETA_TOOLBOX_POSITION__';
 const CUSTOM_KEY='__ZETA_TOOLBOX_CUSTOM_TOOLS_V1__';
 
-
-/* =========================================================
-   이미 실행 중이면 OFF하지 않고 다시 열기
-   ========================================================= */
-
-if(
-  window[KEY]?.show &&
-  document.getElementById(IDS.button)
-){
+if(window[KEY]?.show&&document.getElementById(IDS.button)){
   window[KEY].show();
   window[KEY].ensureRouter?.();
   return;
 }
 
-
-try{
-  window[KEY]?.destroy?.();
-}catch(_){}
-
-try{
-  delete window[KEY];
-}catch(_){
-  window[KEY]=null;
-}
+try{window[KEY]?.destroy?.();}catch(_){}
+try{delete window[KEY];}catch(_){window[KEY]=null;}
 
 Object.values(IDS).forEach(
-  id=>
-    document
-      .getElementById(id)
-      ?.remove()
+  id=>document.getElementById(id)?.remove()
 );
 
-
-/* =========================================================
-   RAW / SCRIPT 로더
-   ========================================================= */
-
 async function runRaw(url){
+  const r=await fetch(
+    url+(url.includes('?')?'&':'?')+'cb='+Date.now(),
+    {cache:'no-store'}
+  );
 
-  const r=
-    await fetch(
+  if(!r.ok)throw new Error('HTTP '+r.status);
+
+  (0,eval)(await r.text());
+}
+
+function loadScript(url){
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+
+    s.src=
       url+
       (url.includes('?')?'&':'?')+
       'cb='+
-      Date.now(),
-      {
-        cache:'no-store'
-      }
-    );
+      Date.now();
 
-  if(!r.ok){
+    s.onload=()=>{
+      s.remove();
+      resolve();
+    };
 
-    throw new Error(
-      'HTTP '+
-      r.status
-    );
-  }
+    s.onerror=()=>{
+      s.remove();
+      reject(new Error('스크립트 로드 실패'));
+    };
 
-  const code=
-    await r.text();
-
-  (0,eval)(code);
+    (document.head||document.documentElement)
+      .appendChild(s);
+  });
 }
 
 
-function loadScript(url){
+/* RP MEMORY */
 
-  return new Promise(
-    (resolve,reject)=>{
-
-      const s=
-        document.createElement(
-          'script'
-        );
-
-      s.src=
-        url+
-        (url.includes('?')?'&':'?')+
-        'cb='+
-        Date.now();
-
-      s.onload=()=>{
-
-        s.remove();
-
-        resolve();
-      };
-
-      s.onerror=()=>{
-
-        s.remove();
-
-        reject(
-          new Error(
-            '스크립트 로드 실패'
-          )
-        );
-      };
-
-      (
-        document.head||
-        document.documentElement
-      ).appendChild(s);
-    }
-  );
+function chatKey(){
+  return location.origin+location.pathname;
 }
 
-
-/* =========================================================
-   RP MEMORY 저장소
-
-   현재 URL pathname 기준으로
-   채팅방별 메모 분리
-   ========================================================= */
-
-function memoryChatKey(){
-
-  return (
-    location.origin+
-    location.pathname
-  );
-}
-
-
-function readMemoryAll(){
-
+function readMemAll(){
   try{
-
-    const v=
-      JSON.parse(
-        localStorage.getItem(
-          MEMORY_STORE_KEY
-        )||
-        '{}'
-      );
+    const v=JSON.parse(
+      localStorage.getItem(MEM_STORE)||'{}'
+    );
 
     return (
       v&&
       typeof v==='object'&&
       !Array.isArray(v)
-    )
-      ? v
-      : {};
+    )?v:{};
 
   }catch(_){
-
     return {};
   }
 }
 
+function normalizeMem(v={}){
+  return {
+    text:String(v.text||''),
 
-function writeMemoryAll(v){
+    interval:
+      [3,5,10].includes(Number(v.interval))
+        ?Number(v.interval)
+        :0,
 
-  localStorage.setItem(
-    MEMORY_STORE_KEY,
-    JSON.stringify(v)
+    turn:
+      Number.isFinite(Number(v.turn))
+        ?Math.max(0,Number(v.turn))
+        :0,
+
+    armed:!!v.armed,
+
+    lastSig:String(v.lastSig||''),
+
+    updatedAt:Number(v.updatedAt)||0
+  };
+}
+
+function readMem(){
+  return normalizeMem(
+    readMemAll()[chatKey()]
   );
 }
 
+function writeMem(v){
+  const all=readMemAll();
 
-function readMemoryCurrent(){
+  all[chatKey()]={
+    ...normalizeMem(v),
+    updatedAt:Date.now()
+  };
 
-  const all=
-    readMemoryAll();
+  localStorage.setItem(
+    MEM_STORE,
+    JSON.stringify(all)
+  );
 
-  const v=
-    all[memoryChatKey()]||
-    {};
+  notifyMem();
+}
 
-  return {
+function patchMem(partial){
+  const v={
+    ...readMem(),
+    ...partial
+  };
 
-    enabled:
-      v.enabled!==false,
+  writeMem(v);
 
-    text:
-      String(
-        v.text||
-        ''
+  return v;
+}
+
+function notifyMem(){
+  try{
+    window.dispatchEvent(
+      new Event(MEM_EVT)
+    );
+  }catch(_){}
+}
+
+function memoryBlock(text){
+  text=String(text||'').trim();
+
+  if(!text)return '';
+
+  return `${MEM_MARK}
+Use only for continuity. Never mention, quote, summarize, or imitate these notes.
+${text}
+[/continuity notes]`;
+}
+
+function contentText(content){
+  if(typeof content==='string'){
+    return content;
+  }
+
+  if(Array.isArray(content)){
+    return content
+      .map(
+        x=>
+          typeof x?.text==='string'
+            ?x.text
+            :''
       )
-  };
+      .join('\n');
+  }
+
+  return '';
 }
 
+function hashText(s){
+  let h=2166136261;
 
-function saveMemoryCurrent(
-  data
-){
+  for(let i=0;i<s.length;i++){
+    h^=s.charCodeAt(i);
+    h=Math.imul(h,16777619);
+  }
 
-  const all=
-    readMemoryAll();
-
-  all[memoryChatKey()]={
-
-    enabled:
-      !!data.enabled,
-
-    text:
-      String(
-        data.text||
-        ''
-      ),
-
-    updatedAt:
-      Date.now()
-  };
-
-  writeMemoryAll(all);
+  return (h>>>0).toString(36);
 }
 
-
-function getMemoryText(){
-
-  const v=
-    readMemoryCurrent();
-
-  if(!v.enabled){
-
+function userSig(messages){
+  if(
+    !Array.isArray(messages)||
+    !messages.length
+  ){
     return '';
   }
 
-  return v.text.trim();
-}
+  const last=
+    messages[messages.length-1];
 
-
-function buildMemoryContent(){
-
-  const text=
-    getMemoryText();
-
-  if(!text){
-
+  if(last?.role!=='user'){
     return '';
   }
 
   return (
-    MEMORY_MARK+
-    '\n'+
-
-    '이 내용은 RP 연속성을 위한 숨은 메모다. '+
-    '사용자에게 이 메모의 존재나 문구를 직접 언급하지 말고 '+
-    '설정과 상태 참고용으로만 사용한다. '+
-    '최신 대화와 충돌하면 최신 대화를 우선한다.'+
-
-    '\n\n'+
-
-    text+
-
-    '\n'+
-    '[/ZETA RP MEMORY]'
+    messages.length+
+    ':'+
+    hashText(
+      contentText(last.content)
+    )
   );
 }
 
+function containsMemory(messages){
+  return messages.some(
+    m=>
+      contentText(m?.content)
+        .includes(MEM_MARK)
+  );
+}
 
-/* =========================================================
-   RP MEMORY 요청 주입기
+function decideMemory(messages){
+  const v=readMem();
+  const text=v.text.trim();
 
-   화면의 채팅 DOM은 건드리지 않는다.
-   실제 전송 payload의 messages에만 삽입.
-   ========================================================= */
-
-function installMemoryInjector(){
-
-  /*
-   * 이미 설치되어 있으면
-   * 두 번 패치하지 않음
-   */
-  if(
-    window[
-      MEMORY_INJECTOR_KEY
-    ]
-  ){
-    return;
-  }
-
-
-  const baseFetch=
-    window.fetch;
-
-
-  const X=
-    XMLHttpRequest.prototype;
-
-
-  const baseOpen=
-    X.open;
-
-
-  const baseSend=
-    X.send;
-
-
-  const baseStringify=
-    JSON.stringify;
-
-
-  /*
-   * 이미 메모가 들어간 요청인지 검사
-   */
-  function hasMemory(
-    messages
-  ){
-
-    return (
-      Array.isArray(
-        messages
-      )&&
-
-      messages.some(
-        message=>{
-
-          const content=
-            message?.content;
-
-
-          if(
-            typeof content===
-            'string'
-          ){
-
-            return content.includes(
-              MEMORY_MARK
-            );
-          }
-
-
-          if(
-            Array.isArray(
-              content
-            )
-          ){
-
-            return content.some(
-              part=>
-
-                typeof part?.text===
-                'string'&&
-
-                part.text.includes(
-                  MEMORY_MARK
-                )
-            );
-          }
-
-
-          return false;
-        }
-      )
-    );
-  }
-
-
-  /*
-   * messages 배열에
-   * 숨은 system 메시지 삽입
-   */
-  function injectPayload(
-    payload
-  ){
-
-    if(
-      !payload||
-      typeof payload!==
-      'object'||
-      !Array.isArray(
-        payload.messages
-      )||
-      hasMemory(
-        payload.messages
-      )
-    ){
-
-      return payload;
-    }
-
-
-    const content=
-      buildMemoryContent();
-
-
-    if(!content){
-
-      return payload;
-    }
-
-
-    const copy={
-      ...payload
+  if(!text){
+    return {
+      inject:false,
+      text:'',
+      v
     };
+  }
 
+  let changed=false;
+  let autoDue=false;
 
-    const messages=
-      payload.messages.slice();
+  const sig=
+    userSig(messages);
 
+  if(
+    v.interval>0&&
+    sig&&
+    sig!==v.lastSig
+  ){
+    v.lastSig=sig;
+    v.turn+=1;
+    changed=true;
 
-    /*
-     * 기존 system / developer 메시지가 있으면
-     * 그 뒤에 RP MEMORY 삽입
-     */
-    let at=0;
+    if(v.turn>=v.interval){
+      autoDue=true;
+      v.turn=0;
+    }
+  }
 
+  const oneShot=
+    v.armed;
 
-    while(
-      at<
-      messages.length&&
+  if(oneShot){
+    v.armed=false;
+    changed=true;
+  }
 
-      [
-        'system',
-        'developer'
-      ].includes(
-        messages[at]?.role
-      )
+  if(changed){
+    writeMem(v);
+  }
+
+  return {
+    inject:
+      oneShot||
+      autoDue,
+
+    text,
+    v
+  };
+}
+
+function injectMessages(messages,text){
+  if(
+    !text||
+    containsMemory(messages)
+  ){
+    return messages;
+  }
+
+  const block=
+    memoryBlock(text);
+
+  if(!block){
+    return messages;
+  }
+
+  const out=
+    messages.slice();
+
+  let at=0;
+  let lastSystem=-1;
+
+  while(
+    at<out.length&&
+    ['system','developer']
+      .includes(out[at]?.role)
+  ){
+    if(
+      typeof out[at]?.content===
+      'string'
     ){
-
-      at++;
+      lastSystem=at;
     }
 
+    at++;
+  }
 
-    messages.splice(
+  if(lastSystem>=0){
+    out[lastSystem]={
+      ...out[lastSystem],
+
+      content:
+        out[lastSystem].content+
+        '\n\n'+
+        block
+    };
+  }else{
+    out.splice(
       at,
       0,
       {
         role:'system',
-        content
+        content:block
       }
     );
-
-
-    copy.messages=
-      messages;
-
-
-    return copy;
   }
 
+  return out;
+}
 
-  /*
-   * 요청 구조가 한 단계 안쪽에 있어도
-   * messages를 찾아서 처리
-   */
-  function transformObject(
-    value,
-    depth=0
+function injectDeep(value,depth=0){
+  if(
+    !value||
+    typeof value!=='object'||
+    depth>5
   ){
+    return {
+      value,
+      changed:false,
+      handled:false
+    };
+  }
 
+  if(
+    !Array.isArray(value)&&
+    Array.isArray(value.messages)
+  ){
     if(
-      !value||
-      typeof value!==
-      'object'||
-      depth>4
-    ){
-
-      return value;
-    }
-
-
-    if(
-      Array.isArray(
-        value
-      )
-    ){
-
-      let changed=false;
-
-
-      const arr=
-        value.map(
-          item=>{
-
-            const next=
-              transformObject(
-                item,
-                depth+1
-              );
-
-
-            if(
-              next!==
-              item
-            ){
-
-              changed=true;
-            }
-
-
-            return next;
-          }
-        );
-
-
-      return changed
-        ? arr
-        : value;
-    }
-
-
-    if(
-      Array.isArray(
+      containsMemory(
         value.messages
       )
     ){
-
-      return injectPayload(
-        value
-      );
+      return {
+        value,
+        changed:false,
+        handled:true
+      };
     }
 
+    const d=
+      decideMemory(
+        value.messages
+      );
 
-    let out=
-      value;
+    if(!d.inject){
+      return {
+        value,
+        changed:false,
+        handled:true
+      };
+    }
 
+    return {
+      value:{
+        ...value,
 
+        messages:
+          injectMessages(
+            value.messages,
+            d.text
+          )
+      },
+
+      changed:true,
+      handled:true
+    };
+  }
+
+  if(Array.isArray(value)){
     for(
-      const [
-        key,
-        item
-      ] of
-      Object.entries(value)
+      let i=0;
+      i<value.length;
+      i++
     ){
+      const r=
+        injectDeep(
+          value[i],
+          depth+1
+        );
 
-      if(
-        item&&
-        typeof item===
-        'object'
-      ){
-
-        const next=
-          transformObject(
-            item,
-            depth+1
-          );
-
-
-        if(
-          next!==
-          item
-        ){
-
-          if(
-            out===
-            value
-          ){
-
-            out={
-              ...value
-            };
-          }
-
-
-          out[key]=
-            next;
+      if(r.handled){
+        if(!r.changed){
+          return {
+            value,
+            changed:false,
+            handled:true
+          };
         }
+
+        const out=
+          value.slice();
+
+        out[i]=r.value;
+
+        return {
+          value:out,
+          changed:true,
+          handled:true
+        };
       }
     }
 
-
-    return out;
+    return {
+      value,
+      changed:false,
+      handled:false
+    };
   }
 
-
-  /*
-   * JSON 문자열 body 변환
-   */
-  function transformBody(
-    body
+  for(
+    const [k,item]
+    of Object.entries(value)
   ){
-
     if(
-      typeof body!==
-      'string'
+      item&&
+      typeof item==='object'
     ){
+      const r=
+        injectDeep(
+          item,
+          depth+1
+        );
 
+      if(r.handled){
+        if(!r.changed){
+          return {
+            value,
+            changed:false,
+            handled:true
+          };
+        }
+
+        return {
+          value:{
+            ...value,
+            [k]:r.value
+          },
+
+          changed:true,
+          handled:true
+        };
+      }
+    }
+  }
+
+  return {
+    value,
+    changed:false,
+    handled:false
+  };
+}
+
+function installMemoryInjector(){
+  if(window[MEM_PATCH]){
+    return;
+  }
+
+  const baseFetch=
+    window.fetch;
+
+  const X=
+    XMLHttpRequest.prototype;
+
+  const baseSend=
+    X.send;
+
+  const stringify=
+    JSON.stringify.bind(JSON);
+
+  function transformBody(body){
+    if(
+      typeof body!=='string'
+    ){
       return body;
     }
 
-
-    const trimmed=
+    const t=
       body.trim();
 
-
     if(
-      !trimmed||
-      !(
-        trimmed.startsWith(
-          '{'
-        )||
-        trimmed.startsWith(
-          '['
-        )
+      !t||
+      (
+        t[0]!=='{'&&
+        t[0]!=='['
       )
     ){
-
       return body;
     }
 
-
     try{
-
       const parsed=
-        JSON.parse(
-          body
-        );
+        JSON.parse(body);
 
+      const r=
+        injectDeep(parsed);
 
-      const next=
-        transformObject(
-          parsed
-        );
-
-
-      if(
-        next===
-        parsed
-      ){
-
-        return body;
-      }
-
-
-      return baseStringify.call(
-        JSON,
-        next
-      );
-
+      return r.changed
+        ?stringify(r.value)
+        :body;
 
     }catch(_){
-
       return body;
     }
   }
 
-
-  /*
-   * fetch
-   */
   window.fetch=
-    function(
-      input,
-      init
-    ){
-
+    function(input,init){
       try{
-
         if(
           init&&
-          typeof init.body===
-          'string'
+          typeof init.body==='string'
         ){
-
           const body=
             transformBody(
               init.body
             );
 
-
-          if(
-            body!==
-            init.body
-          ){
-
+          if(body!==init.body){
             init={
               ...init,
               body
             };
           }
         }
-
-      }catch(error){
-
+      }catch(e){
         console.warn(
-          '[ZETA MEMORY] fetch inject failed',
-          error
+          '[ZETA MEMORY] fetch',
+          e
         );
       }
-
 
       return baseFetch.call(
         this,
@@ -710,47 +581,17 @@ function installMemoryInjector(){
       );
     };
 
-
-  /*
-   * XHR open
-   *
-   * 기존 Router 패치와 연결 유지
-   */
-  X.open=
-    function(
-      ...args
-    ){
-
-      return baseOpen.apply(
-        this,
-        args
-      );
-    };
-
-
-  /*
-   * XHR send
-   */
   X.send=
-    function(
-      body
-    ){
-
+    function(body){
       try{
-
         body=
-          transformBody(
-            body
-          );
-
-      }catch(error){
-
+          transformBody(body);
+      }catch(e){
         console.warn(
-          '[ZETA MEMORY] xhr inject failed',
-          error
+          '[ZETA MEMORY] xhr',
+          e
         );
       }
-
 
       return baseSend.call(
         this,
@@ -758,224 +599,107 @@ function installMemoryInjector(){
       );
     };
 
-
-  /*
-   * JSON.stringify
-   *
-   * Zeta가 body를 만들 때부터
-   * messages를 잡을 수 있게 함
-   */
-  JSON.stringify=
-    function(
-      value,
-      ...rest
-    ){
-
-      try{
-
-        value=
-          transformObject(
-            value
-          );
-
-      }catch(error){
-
-        console.warn(
-          '[ZETA MEMORY] stringify inject failed',
-          error
-        );
-      }
-
-
-      return baseStringify.call(
-        JSON,
-        value,
-        ...rest
-      );
-    };
-
-
-  window[
-    MEMORY_INJECTOR_KEY
-  ]={
-
-    version:'1.0',
-
-    getMemoryText,
-
-    buildMemoryContent,
-
-    transformObject
+  window[MEM_PATCH]={
+    version:'2.0'
   };
 
-
   console.log(
-    '[ZETA MEMORY] injector ON'
+    '[ZETA MEMORY] injector ON v2'
   );
 }
-
 
 installMemoryInjector();
 
 
-/* =========================================================
-   Router / 기본 도구
-   ========================================================= */
+/* ROUTER + TOOLS */
 
 async function ensureRouter(){
-
-  if(
-    window[
-      ROUTER_KEY
-    ]
-  ){
-
+  if(window[ROUTER_KEY]){
     updateRouterState();
-
     return true;
   }
 
-
   try{
-
     await runRaw(
       URLS.router
     );
 
-
     updateRouterState();
-
 
     return !!window[
       ROUTER_KEY
     ];
 
-
-  }catch(error){
-
+  }catch(e){
     console.error(
       '[ZETA Toolbox] router',
-      error
+      e
     );
-
 
     updateRouterState();
 
-
     alert(
       'Provider Router 로드 실패\n'+
-      (
-        error?.message||
-        error
-      )
+      (e?.message||e)
     );
-
 
     return false;
   }
 }
 
-
 async function openKit(){
-
   try{
-
     await ensureRouter();
-
-    await loadScript(
-      URLS.kit
-    );
-
-  }catch(error){
-
+    await loadScript(URLS.kit);
+  }catch(e){
     alert(
       '키트 로드 실패\n'+
-      (
-        error?.message||
-        error
-      )
+      (e?.message||e)
     );
   }
 }
-
 
 async function openFeed(){
-
   try{
-
-    await runRaw(
-      URLS.feed
-    );
-
-  }catch(error){
-
+    await runRaw(URLS.feed);
+  }catch(e){
     alert(
       '피드 로드 실패\n'+
-      (
-        error?.message||
-        error
-      )
+      (e?.message||e)
     );
   }
 }
-
 
 async function applyTheme(){
-
   try{
-
-    await runRaw(
-      URLS.theme
-    );
-
-  }catch(error){
-
+    await runRaw(URLS.theme);
+  }catch(e){
     alert(
       '테마 로드 실패\n'+
-      (
-        error?.message||
-        error
-      )
+      (e?.message||e)
     );
   }
 }
 
-
 async function openNarrator(){
-
   try{
-
     await runRaw(
       URLS.narrator
     );
-
-  }catch(error){
-
+  }catch(e){
     alert(
       '나레삭제 로드 실패\n'+
-      (
-        error?.message||
-        error
-      )
+      (e?.message||e)
     );
   }
 }
 
-
-/* =========================================================
-   PHONE
-   ========================================================= */
-
 function openPhone(){
-
   try{
-
     window.__INPOCKET__
       ?.destroy
       ?.();
-
   }catch(_){}
-
 
   document
     .querySelectorAll(
@@ -985,51 +709,36 @@ function openPhone(){
       s=>s.remove()
     );
 
-
   const s=
     document.createElement(
       'script'
     );
 
-
   s.dataset.zetaToolboxInpocket=
     '1';
-
 
   s.src=
     URLS.phone+
     '?cb='+
     Date.now();
 
-
   s.onload=()=>{
-
     try{
-
       window.__INPOCKET__
         ?.open
         ?.();
-
-    }catch(error){
-
-      console.error(
-        '[ZETA Toolbox] phone open',
-        error
-      );
+    }catch(e){
+      console.error(e);
     }
   };
 
-
   s.onerror=()=>{
-
     s.remove();
-
 
     alert(
       'inPocket 스크립트를 불러오지 못했습니다.'
     );
   };
-
 
   (
     document.head||
@@ -1038,14 +747,10 @@ function openPhone(){
 }
 
 
-/* =========================================================
-   사용자 도구
-   ========================================================= */
+/* CUSTOM */
 
-function readCustomTools(){
-
+function readCustom(){
   try{
-
     const v=
       JSON.parse(
         localStorage.getItem(
@@ -1054,37 +759,24 @@ function readCustomTools(){
         '[]'
       );
 
-
     return Array.isArray(v)
-      ? v
-      : [];
+      ?v
+      :[];
 
   }catch(_){
-
     return [];
   }
 }
 
-
-function writeCustomTools(
-  v
-){
-
+function writeCustom(v){
   localStorage.setItem(
     CUSTOM_KEY,
     JSON.stringify(v)
   );
 }
 
-
-function normalizeUserCode(
-  code
-){
-
-  return String(
-    code||
-    ''
-  )
+function normCode(v){
+  return String(v||'')
     .trim()
     .replace(
       /^javascript\s*:/i,
@@ -1093,1058 +785,393 @@ function normalizeUserCode(
     .trim();
 }
 
-
-function runCustomTool(
-  tool
-){
-
+function runCustom(tool){
   const code=
-    normalizeUserCode(
-      tool?.code
-    );
-
+    normCode(tool?.code);
 
   if(!code){
-
-    alert(
+    return alert(
       '실행할 코드가 없습니다.'
     );
-
-    return;
   }
 
-
   try{
-
     (0,eval)(code);
-
-  }catch(error){
-
-    console.error(
-      '[ZETA Toolbox] custom',
-      error
-    );
-
+  }catch(e){
+    console.error(e);
 
     alert(
       '사용자 도구 실행 실패\n'+
-      (
-        error?.message||
-        error
-      )
+      (e?.message||e)
     );
   }
 }
 
-
-function esc(
-  value
-){
-
-  return String(
-    value??
-    ''
-  )
+function esc(v){
+  return String(v??'')
     .replace(
       /[&<>"']/g,
-      char=>({
+      c=>({
         '&':'&amp;',
         '<':'&lt;',
         '>':'&gt;',
         '"':'&quot;',
         "'":'&#39;'
-      }[char])
+      }[c])
     );
 }
 
 
-/* =========================================================
-   스타일
-   ========================================================= */
+/* STYLE */
 
 const style=
   document.createElement(
     'style'
   );
 
-
 style.id=
   IDS.style;
-
 
 style.textContent=`
 
 #${IDS.button}{
-
-  position:fixed;
-
-  right:14px;
-
-  bottom:
-    calc(
-      90px +
-      env(
-        safe-area-inset-bottom,
-        0px
-      )
-    );
-
-  width:44px;
-  height:44px;
-
-  padding:0;
-  margin:0;
-
-  display:flex;
-
-  align-items:center;
-  justify-content:center;
-
-  z-index:2147483644;
-
-  border:
-    1px solid
-    rgba(255,255,255,.2);
-
-  border-radius:
-    999px;
-
-  background:
-    linear-gradient(
-      145deg,
-      #30333d,
-      #15171c
-    );
-
-  color:#fff;
-
-  font:
-    800 15px/1
-    system-ui,
-    -apple-system,
-    sans-serif;
-
-  box-shadow:
-    0 6px 22px
-    rgba(0,0,0,.32);
-
-  cursor:grab;
-
-  user-select:none;
-  -webkit-user-select:none;
-
-  touch-action:none;
-
-  -webkit-tap-highlight-color:
-    transparent;
+position:fixed;
+right:14px;
+bottom:calc(90px + env(safe-area-inset-bottom,0px));
+width:44px;
+height:44px;
+padding:0;
+display:flex;
+align-items:center;
+justify-content:center;
+z-index:2147483644;
+border:1px solid #ffffff33;
+border-radius:999px;
+background:linear-gradient(145deg,#30333d,#15171c);
+color:#fff;
+font:800 15px/1 system-ui;
+box-shadow:0 6px 22px #0005;
+touch-action:none;
+user-select:none
 }
 
-
-#${IDS.button}[data-dragging="1"]{
-
-  cursor:grabbing;
+#${IDS.button} .dot{
+position:absolute;
+top:3px;
+right:3px;
+width:8px;
+height:8px;
+border-radius:50%;
+background:#ef4444;
+border:1.5px solid #15171c
 }
 
-
-#${IDS.button}
-.zt-dot{
-
-  position:absolute;
-
-  top:3px;
-  right:3px;
-
-  width:8px;
-  height:8px;
-
-  border-radius:50%;
-
-  background:#ef4444;
-
-  border:
-    1.5px solid
-    #15171c;
+#${IDS.button}[data-router="on"] .dot{
+background:#22c55e;
+box-shadow:0 0 7px #22c55eaa
 }
-
-
-#${IDS.button}[data-router="on"]
-.zt-dot{
-
-  background:#22c55e;
-
-  box-shadow:
-    0 0 7px
-    rgba(34,197,94,.65);
-}
-
-
-/* =========================================================
-   Toolbox 메뉴
-   ========================================================= */
 
 #${IDS.menu}{
-
-  position:fixed;
-
-  z-index:2147483645;
-
-  display:none;
-
-  width:
-    min(
-      286px,
-      calc(100vw - 20px)
-    );
-
-  box-sizing:border-box;
-
-  padding:10px;
-
-  border:
-    1px solid
-    rgba(255,255,255,.12);
-
-  border-radius:20px;
-
-  background:
-    rgba(22,24,30,.98);
-
-  color:#fff;
-
-  box-shadow:
-    0 14px 42px
-    rgba(0,0,0,.44);
-
-  backdrop-filter:
-    blur(18px);
-
-  -webkit-backdrop-filter:
-    blur(18px);
-
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+position:fixed;
+z-index:2147483645;
+display:none;
+width:min(286px,calc(100vw - 20px));
+box-sizing:border-box;
+padding:10px;
+border:1px solid #ffffff1f;
+border-radius:20px;
+background:#16181efa;
+color:#fff;
+box-shadow:0 14px 42px #0007;
+font-family:system-ui
 }
-
 
 #${IDS.menu}[data-open="1"]{
-
-  display:block;
+display:block
 }
 
-
-#${IDS.menu}
-.zt-head{
-
-  display:flex;
-
-  align-items:center;
-
-  justify-content:
-    space-between;
-
-  height:25px;
-
-  padding:
-    0 3px 8px;
-
-  margin-bottom:9px;
-
-  color:
-    rgba(255,255,255,.55);
-
-  font-size:10px;
-
-  border-bottom:
-    1px solid
-    rgba(255,255,255,.08);
+#${IDS.menu} .head{
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:0 3px 8px;
+margin-bottom:9px;
+color:#ffffff88;
+font-size:10px;
+border-bottom:1px solid #ffffff14
 }
 
-
-#${IDS.menu}
-.zt-state{
-
-  color:#ef4444;
-
-  font-weight:700;
+#${IDS.menu} .state{
+color:#ef4444;
+font-weight:700
 }
 
-
-#${IDS.menu}
-.zt-state[data-on="1"]{
-
-  color:#4ade80;
+#${IDS.menu} .state[data-on="1"]{
+color:#4ade80
 }
 
-
-#${IDS.menu}
-.zt-scroll{
-
-  max-height:
-    min(
-      48vh,
-      390px
-    );
-
-  overflow-y:auto;
-  overflow-x:hidden;
-
-  padding:1px;
-
-  -webkit-overflow-scrolling:
-    touch;
-
-  overscroll-behavior:
-    contain;
+#${IDS.menu} .scroll{
+max-height:min(48vh,390px);
+overflow-y:auto;
+padding:1px
 }
 
-
-#${IDS.menu}
-.zt-grid{
-
-  display:grid;
-
-  grid-template-columns:
-    repeat(
-      2,
-      minmax(0,1fr)
-    );
-
-  gap:10px;
+#${IDS.menu} .grid{
+display:grid;
+grid-template-columns:repeat(2,minmax(0,1fr));
+gap:10px
 }
 
-
-#${IDS.menu}
-.zt-item{
-
-  width:100%;
-  min-width:0;
-
-  height:84px;
-
-  box-sizing:border-box;
-
-  display:flex;
-
-  flex-direction:column;
-
-  align-items:center;
-  justify-content:center;
-
-  gap:8px;
-
-  padding:8px;
-
-  border:
-    1px solid
-    rgba(255,255,255,.10);
-
-  border-radius:16px;
-
-  background:
-    rgba(255,255,255,.048);
-
-  color:
-    rgba(255,255,255,.95);
-
-  text-align:center;
-
-  font:
-    650 12px/1.1
-    system-ui,
-    -apple-system,
-    sans-serif;
-
-  cursor:pointer;
-
-  touch-action:
-    manipulation;
-
-  -webkit-tap-highlight-color:
-    transparent;
+#${IDS.menu} .item{
+height:84px;
+border:1px solid #ffffff1a;
+border-radius:16px;
+background:#ffffff0c;
+color:#fff;
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+gap:8px;
+font:650 12px system-ui
 }
 
-
-#${IDS.menu}
-.zt-item:active{
-
-  transform:
-    scale(.965);
-
-  background:
-    rgba(255,255,255,.15);
+#${IDS.menu} .item:active{
+transform:scale(.965);
+background:#ffffff26
 }
 
-
-#${IDS.menu}
-.zt-icon{
-
-  min-height:24px;
-
-  display:flex;
-
-  align-items:center;
-  justify-content:center;
-
-  font-size:21px;
-
-  line-height:1;
-
-  pointer-events:none;
+#${IDS.menu} .icon{
+font-size:21px;
+pointer-events:none
 }
 
-
-#${IDS.menu}
-.zt-label{
-
-  max-width:100%;
-
-  overflow:hidden;
-
-  text-overflow:
-    ellipsis;
-
-  white-space:
-    nowrap;
-
-  pointer-events:none;
-
-  font-size:12px;
+#${IDS.menu} .label{
+max-width:100%;
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+pointer-events:none
 }
-
-
-/* =========================================================
-   별도 + 버튼
-   ========================================================= */
 
 #${IDS.add}{
-
-  position:fixed;
-
-  z-index:2147483646;
-
-  display:none;
-
-  align-items:center;
-  justify-content:center;
-
-  width:46px;
-  height:46px;
-
-  padding:0;
-
-  border:
-    1px solid
-    rgba(147,197,253,.35);
-
-  border-radius:50%;
-
-  background:#1d212a;
-
-  color:#93c5fd;
-
-  font:
-    300 28px/1
-    system-ui;
-
-  box-shadow:
-    0 8px 26px
-    rgba(0,0,0,.42);
-
-  cursor:pointer;
-
-  touch-action:
-    manipulation;
-
-  -webkit-tap-highlight-color:
-    transparent;
+position:fixed;
+z-index:2147483646;
+display:none;
+align-items:center;
+justify-content:center;
+width:46px;
+height:46px;
+padding:0;
+border:1px solid #93c5fd59;
+border-radius:50%;
+background:#1d212a;
+color:#93c5fd;
+font:300 28px/1 system-ui;
+box-shadow:0 8px 26px #0007
 }
-
 
 #${IDS.add}[data-open="1"]{
-
-  display:flex;
+display:flex
 }
 
-
-/* =========================================================
-   공통 모달
-   ========================================================= */
-
-#${IDS.customModal},
-#${IDS.memoryModal}{
-
-  position:fixed;
-
-  inset:0;
-
-  z-index:2147483647;
-
-  display:none;
-
-  align-items:center;
-
-  justify-content:center;
-
-  box-sizing:border-box;
-
-  padding:16px;
-
-  background:
-    rgba(0,0,0,.58);
-
-  backdrop-filter:
-    blur(6px);
-
-  -webkit-backdrop-filter:
-    blur(6px);
-
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+#${IDS.custom},
+#${IDS.memory}{
+position:fixed;
+inset:0;
+z-index:2147483647;
+display:none;
+align-items:center;
+justify-content:center;
+padding:16px;
+box-sizing:border-box;
+background:#0009;
+font-family:system-ui
 }
 
-
-#${IDS.customModal}[data-open="1"],
-#${IDS.memoryModal}[data-open="1"]{
-
-  display:flex;
+#${IDS.custom}[data-open="1"],
+#${IDS.memory}[data-open="1"]{
+display:flex
 }
 
-
-#${IDS.customModal}
-.zm-card,
-
-#${IDS.memoryModal}
-.zm-card{
-
-  width:
-    min(
-      440px,
-      100%
-    );
-
-  max-height:86vh;
-
-  box-sizing:border-box;
-
-  overflow:auto;
-
-  padding:16px;
-
-  border:
-    1px solid
-    rgba(255,255,255,.13);
-
-  border-radius:20px;
-
-  background:#191b21;
-
-  color:#fff;
-
-  box-shadow:
-    0 18px 60px
-    rgba(0,0,0,.46);
+.card{
+width:min(440px,100%);
+max-height:86vh;
+overflow:auto;
+box-sizing:border-box;
+padding:16px;
+border:1px solid #ffffff21;
+border-radius:20px;
+background:#191b21;
+color:#fff;
+box-shadow:0 18px 60px #0007
 }
 
-
-#${IDS.customModal}
-.zm-title,
-
-#${IDS.memoryModal}
-.zm-title{
-
-  display:flex;
-
-  align-items:center;
-
-  justify-content:
-    space-between;
-
-  margin-bottom:14px;
-
-  font:
-    750 15px/1.2
-    system-ui;
+.title{
+display:flex;
+align-items:center;
+justify-content:space-between;
+margin-bottom:13px;
+font:750 15px system-ui
 }
 
-
-#${IDS.customModal}
-.zm-close,
-
-#${IDS.memoryModal}
-.zm-close{
-
-  width:34px;
-  height:34px;
-
-  border:0;
-
-  border-radius:10px;
-
-  background:
-    rgba(255,255,255,.07);
-
-  color:#fff;
-
-  font-size:18px;
+.close{
+width:34px;
+height:34px;
+border:0;
+border-radius:10px;
+background:#ffffff12;
+color:#fff;
+font-size:18px
 }
 
-
-#${IDS.customModal}
-.zm-row{
-
-  display:grid;
-
-  grid-template-columns:
-    80px 1fr;
-
-  gap:10px;
-
-  margin-bottom:10px;
-}
-
-
-#${IDS.customModal}
-label,
-
-#${IDS.memoryModal}
 label{
-
-  display:block;
-
-  margin:
-    0 0 6px 2px;
-
-  color:
-    rgba(255,255,255,.62);
-
-  font-size:11px;
+display:block;
+margin:0 0 6px 2px;
+color:#ffffff99;
+font-size:11px
 }
 
-
-#${IDS.customModal}
 input,
-
-#${IDS.customModal}
-textarea,
-
-#${IDS.memoryModal}
 textarea{
-
-  width:100%;
-
-  box-sizing:border-box;
-
-  border:
-    1px solid
-    rgba(255,255,255,.11);
-
-  border-radius:12px;
-
-  background:
-    rgba(255,255,255,.055);
-
-  color:#fff;
-
-  outline:none;
-
-  padding:
-    10px 11px;
+box-sizing:border-box;
+width:100%;
+border:1px solid #ffffff1c;
+border-radius:12px;
+background:#ffffff0e;
+color:#fff;
+padding:10px 11px;
+outline:none
 }
 
-
-#${IDS.customModal}
 textarea{
-
-  min-height:150px;
-
-  resize:vertical;
-
-  font:
-    11px/1.45
-    ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+resize:vertical
 }
 
-
-#${IDS.customModal}
-.zm-actions{
-
-  display:flex;
-
-  gap:8px;
-
-  margin-top:12px;
+.row{
+display:grid;
+grid-template-columns:80px 1fr;
+gap:10px;
+margin-bottom:10px
 }
 
-
-#${IDS.customModal}
-.zm-btn,
-
-#${IDS.memoryModal}
-.zm-btn{
-
-  height:40px;
-
-  border:0;
-
-  border-radius:12px;
-
-  background:
-    rgba(255,255,255,.07);
-
-  color:#fff;
-
-  font:
-    700 11px/1
-    system-ui;
+.actions{
+display:flex;
+gap:8px;
+margin-top:10px
 }
 
-
-#${IDS.customModal}
-.zm-actions
-.zm-btn{
-
-  flex:1;
+.btn{
+min-height:40px;
+border:0;
+border-radius:12px;
+background:#ffffff12;
+color:#fff;
+font:700 11px system-ui;
+padding:0 12px
 }
 
-
-#${IDS.customModal}
-.zm-save,
-
-#${IDS.memoryModal}
-.zm-save{
-
-  background:#6d88cf;
-
-  color:#fff;
+.primary{
+background:#6d88cf
 }
 
-
-#${IDS.customModal}
-.zm-divider{
-
-  height:1px;
-
-  margin:
-    17px 0 12px;
-
-  background:
-    rgba(255,255,255,.09);
+.danger{
+color:#fca5a5
 }
 
-
-#${IDS.customModal}
-.zm-sub{
-
-  margin-bottom:8px;
-
-  color:
-    rgba(255,255,255,.62);
-
-  font-size:11px;
+.list{
+display:flex;
+flex-direction:column;
+gap:7px;
+margin-top:12px
 }
 
-
-#${IDS.customModal}
-.zm-list{
-
-  display:flex;
-
-  flex-direction:column;
-
-  gap:7px;
+.entry{
+display:grid;
+grid-template-columns:34px minmax(0,1fr) auto auto;
+gap:7px;
+align-items:center;
+padding:8px;
+border:1px solid #ffffff14;
+border-radius:12px;
+background:#ffffff09
 }
 
-
-#${IDS.customModal}
-.zm-entry{
-
-  display:grid;
-
-  grid-template-columns:
-    34px
-    minmax(0,1fr)
-    auto
-    auto;
-
-  gap:7px;
-
-  align-items:center;
-
-  padding:8px;
-
-  border:
-    1px solid
-    rgba(255,255,255,.08);
-
-  border-radius:12px;
-
-  background:
-    rgba(255,255,255,.035);
+.ename{
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+font-size:12px
 }
 
-
-#${IDS.customModal}
-.zm-eicon{
-
-  text-align:center;
-
-  font-size:18px;
+.mini{
+height:30px;
+border:0;
+border-radius:9px;
+background:#ffffff12;
+color:#fff;
+font-size:10px
 }
 
-
-#${IDS.customModal}
-.zm-ename{
-
-  overflow:hidden;
-
-  text-overflow:
-    ellipsis;
-
-  white-space:
-    nowrap;
-
-  font-size:12px;
+#${IDS.custom} textarea{
+min-height:150px;
+font:11px/1.45 ui-monospace,monospace
 }
 
-
-#${IDS.customModal}
-.zm-mini{
-
-  height:30px;
-
-  padding:
-    0 9px;
-
-  border:0;
-
-  border-radius:9px;
-
-  background:
-    rgba(255,255,255,.07);
-
-  color:#fff;
-
-  font:
-    650 10px/1
-    system-ui;
+#${IDS.memory} .memtext{
+min-height:230px;
+font:12px/1.55 ui-monospace,monospace
 }
 
-
-#${IDS.customModal}
-.zm-delete{
-
-  color:#fca5a5;
+#${IDS.memory} .intervals{
+display:grid;
+grid-template-columns:repeat(4,1fr);
+gap:7px;
+margin-top:6px
 }
 
-
-#${IDS.customModal}
-.zm-empty{
-
-  padding:
-    14px 4px;
-
-  text-align:center;
-
-  color:
-    rgba(255,255,255,.38);
-
-  font-size:11px;
+#${IDS.memory} .ival{
+height:36px;
+border:1px solid #ffffff18;
+border-radius:10px;
+background:#ffffff0a;
+color:#ffffffaa;
+font:700 11px system-ui
 }
 
-
-/* =========================================================
-   RP MEMORY 모달
-   ========================================================= */
-
-#${IDS.memoryModal}
-.mm-sub{
-
-  margin:
-    -5px 0 9px;
-
-  color:
-    rgba(255,255,255,.42);
-
-  font-size:10px;
-
-  line-height:1.4;
-
-  word-break:
-    break-all;
+#${IDS.memory} .ival[data-on="1"]{
+background:#6d88cf;
+color:#fff;
+border-color:#8ca4e3
 }
 
-
-#${IDS.memoryModal}
-.mm-text{
-
-  min-height:240px;
-
-  resize:vertical;
-
-  font:
-    12px/1.55
-    ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+#${IDS.memory} .oneshot{
+width:100%;
+margin-top:10px;
+background:#485f9b
 }
 
-
-#${IDS.memoryModal}
-.mm-switchrow{
-
-  display:flex;
-
-  align-items:center;
-
-  justify-content:
-    space-between;
-
-  gap:10px;
-
-  margin-top:10px;
-
-  padding:
-    10px 11px;
-
-  border:
-    1px solid
-    rgba(255,255,255,.08);
-
-  border-radius:12px;
-
-  background:
-    rgba(255,255,255,.035);
+#${IDS.memory} .oneshot[data-armed="1"]{
+background:#875f32
 }
 
-
-#${IDS.memoryModal}
-.mm-switch{
-
-  display:flex;
-
-  align-items:center;
-
-  gap:8px;
-
-  margin:0;
-
-  color:
-    rgba(255,255,255,.82);
-
-  font-size:12px;
+#${IDS.memory} .status{
+margin-top:10px;
+padding:9px 10px;
+border-radius:10px;
+background:#ffffff09;
+color:#ffffff99;
+font-size:10px;
+line-height:1.4
 }
 
-
-#${IDS.memoryModal}
-.mm-switch
-input{
-
-  width:18px;
-  height:18px;
-}
-
-
-#${IDS.memoryModal}
-.mm-status{
-
-  font-size:10px;
-
-  color:#4ade80;
-}
-
-
-#${IDS.memoryModal}
-.mm-status[data-on="0"]{
-
-  color:#f87171;
-}
-
-
-#${IDS.memoryModal}
-.mm-actions{
-
-  display:grid;
-
-  grid-template-columns:
-    1fr 1fr 1fr;
-
-  gap:8px;
-
-  margin-top:10px;
-}
-
-
-#${IDS.memoryModal}
-.mm-clear{
-
-  color:#fca5a5;
-}
-
-
-#${IDS.memoryModal}
-.mm-preview{
-
-  display:none;
-
-  margin-top:12px;
-
-  padding:11px;
-
-  border:
-    1px solid
-    rgba(255,255,255,.08);
-
-  border-radius:12px;
-
-  background:#111318;
-
-  white-space:
-    pre-wrap;
-
-  word-break:
-    break-word;
-
-  color:
-    rgba(255,255,255,.78);
-
-  font:
-    11px/1.5
-    ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
-}
-
-
-#${IDS.memoryModal}
-.mm-preview[data-open="1"]{
-
-  display:block;
-}
-
-
-#${IDS.memoryModal}
-.mm-note{
-
-  margin-top:10px;
-
-  color:
-    rgba(255,255,255,.38);
-
-  font-size:10px;
-
-  line-height:1.45;
+#${IDS.memory} .note{
+margin-top:9px;
+color:#ffffff61;
+font-size:10px;
+line-height:1.45
 }
 `;
-
 
 (
   document.head||
@@ -2152,27 +1179,22 @@ input{
 ).appendChild(style);
 
 
-/* =========================================================
-   DOM
-   ========================================================= */
+/* DOM */
 
 const button=
   document.createElement(
     'button'
   );
 
-
 button.id=
   IDS.button;
-
 
 button.type=
   'button';
 
-
 button.innerHTML=
   '<span>Z</span>'+
-  '<span class="zt-dot"></span>';
+  '<span class="dot"></span>';
 
 
 const menu=
@@ -2180,293 +1202,174 @@ const menu=
     'div'
   );
 
-
 menu.id=
   IDS.menu;
-
 
 menu.dataset.open=
   '0';
 
-
-menu.innerHTML=`
-
-<div class="zt-head">
-
-  <span>
-    ZETA TOOLS
-  </span>
-
-  <span class="zt-state">
-    ROUTER
-  </span>
-
-</div>
-
-<div class="zt-scroll">
-
-  <div class="zt-grid"></div>
-
-</div>
-`;
+menu.innerHTML=
+  '<div class="head">'+
+  '<span>ZETA TOOLS</span>'+
+  '<span class="state">ROUTER</span>'+
+  '</div>'+
+  '<div class="scroll">'+
+  '<div class="grid"></div>'+
+  '</div>';
 
 
-/*
- * +는 메뉴와 별도 DOM
- */
-const addButton=
+const add=
   document.createElement(
     'button'
   );
 
-
-addButton.id=
+add.id=
   IDS.add;
 
-
-addButton.type=
+add.type=
   'button';
 
-
-addButton.dataset.open=
+add.dataset.open=
   '0';
 
-
-addButton.textContent=
+add.textContent=
   '＋';
 
 
-addButton.title=
-  '도구 추가';
-
-
-/* =========================================================
-   사용자 도구 모달
-   ========================================================= */
-
-const customModal=
+const custom=
   document.createElement(
     'div'
   );
 
+custom.id=
+  IDS.custom;
 
-customModal.id=
-  IDS.customModal;
-
-
-customModal.dataset.open=
+custom.dataset.open=
   '0';
 
+custom.innerHTML=`
+<div class="card">
 
-customModal.innerHTML=`
+<div class="title">
+<span>사용자 도구</span>
+<button class="close" type="button">×</button>
+</div>
 
-<div class="zm-card">
+<div class="row">
 
-  <div class="zm-title">
+<div>
+<label>아이콘</label>
+<input class="cicon" maxlength="12" placeholder="🧩">
+</div>
 
-    <span>
-      사용자 도구
-    </span>
+<div>
+<label>이름</label>
+<input class="cname" maxlength="40" placeholder="내 도구">
+</div>
 
-    <button
-      type="button"
-      class="zm-close"
-    >
-      ×
-    </button>
+</div>
 
-  </div>
+<label>JavaScript / 북마클릿</label>
 
+<textarea class="ccode" spellcheck="false"></textarea>
 
-  <div class="zm-row">
+<div class="actions">
+<button class="btn reset" type="button">초기화</button>
+<button class="btn primary save" type="button">추가</button>
+</div>
 
-    <div>
-
-      <label>
-        아이콘
-      </label>
-
-      <input
-        class="zm-icon"
-        maxlength="12"
-        placeholder="🧩"
-      >
-
-    </div>
-
-
-    <div>
-
-      <label>
-        이름
-      </label>
-
-      <input
-        class="zm-name"
-        maxlength="40"
-        placeholder="내 도구"
-      >
-
-    </div>
-
-  </div>
-
-
-  <label>
-    JavaScript / 북마클릿
-  </label>
-
-
-  <textarea
-    class="zm-code"
-    spellcheck="false"
-    placeholder="javascript:(()=>{ ... })()"
-  ></textarea>
-
-
-  <div class="zm-actions">
-
-    <button
-      type="button"
-      class="zm-btn zm-cancel"
-    >
-      초기화
-    </button>
-
-
-    <button
-      type="button"
-      class="zm-btn zm-save"
-    >
-      추가
-    </button>
-
-  </div>
-
-
-  <div class="zm-divider"></div>
-
-
-  <div class="zm-sub">
-    추가한 사용자 도구
-  </div>
-
-
-  <div class="zm-list"></div>
+<div class="list"></div>
 
 </div>
 `;
 
 
-/* =========================================================
-   RP MEMORY 모달
-   ========================================================= */
-
-const memoryModal=
+const memory=
   document.createElement(
     'div'
   );
 
+memory.id=
+  IDS.memory;
 
-memoryModal.id=
-  IDS.memoryModal;
-
-
-memoryModal.dataset.open=
+memory.dataset.open=
   '0';
 
+memory.innerHTML=`
+<div class="card">
 
-memoryModal.innerHTML=`
+<div class="title">
+<span>📌 RP MEMORY</span>
+<button class="close" type="button">×</button>
+</div>
 
-<div class="zm-card">
+<label>
+이 채팅방에 기억시킬 내용
+</label>
 
-  <div class="zm-title">
+<textarea
+class="memtext"
+spellcheck="false"
+placeholder="현재 장소: 집 거실&#10;둘은 싸운 직후&#10;ㅇㅇ는 사건의 진실을 모름"
+></textarea>
 
-    <span>
-      📌 RP MEMORY
-    </span>
+<label style="margin-top:11px">
+자동주입 주기
+</label>
 
-    <button
-      type="button"
-      class="zm-close"
-    >
-      ×
-    </button>
+<div class="intervals">
 
-  </div>
+<button
+class="ival"
+data-i="0"
+type="button">
+OFF
+</button>
 
+<button
+class="ival"
+data-i="3"
+type="button">
+3턴
+</button>
 
-  <div class="mm-sub"></div>
+<button
+class="ival"
+data-i="5"
+type="button">
+5턴
+</button>
 
+<button
+class="ival"
+data-i="10"
+type="button">
+10턴
+</button>
 
-  <textarea
-    class="mm-text"
-    spellcheck="false"
-    placeholder="예)
-현재 장소: 집 거실
-현재 시간: 새벽 1시
-ㅇㅇ는 사건의 진실을 모름
-둘은 아직 연인이 아님"
-  ></textarea>
+</div>
 
+<button
+class="btn oneshot"
+type="button">
+다음 답변에 1회 주입
+</button>
 
-  <div class="mm-switchrow">
+<div class="status"></div>
 
-    <label class="mm-switch">
+<div class="actions">
+<button
+class="btn danger clear"
+type="button">
+메모 비우기
+</button>
+</div>
 
-      <input
-        class="mm-enabled"
-        type="checkbox"
-      >
-
-      자동주입
-
-    </label>
-
-
-    <span class="mm-status"></span>
-
-  </div>
-
-
-  <div class="mm-actions">
-
-    <button
-      type="button"
-      class="zm-btn mm-preview-btn"
-    >
-      미리보기
-    </button>
-
-
-    <button
-      type="button"
-      class="zm-btn mm-clear"
-    >
-      비우기
-    </button>
-
-
-    <button
-      type="button"
-      class="zm-btn zm-save mm-save"
-    >
-      저장
-    </button>
-
-  </div>
-
-
-  <div class="mm-preview"></div>
-
-
-  <div class="mm-note">
-
-    메모는 화면의 채팅 메시지에는 표시되지 않습니다.
-    자동주입이 켜져 있으면 다음 모델 요청의 숨은 system 메모로 들어갑니다.
-    입력 내용은 300ms 후 자동 저장됩니다.
-
-  </div>
+<div class="note">
+메모는 화면 채팅에는 표시되지 않습니다.
+자동주입 OFF여도 1회 주입은 사용할 수 있습니다.
+메모 입력은 자동 저장됩니다.
+</div>
 
 </div>
 `;
@@ -2478,386 +1381,315 @@ memoryModal.innerHTML=`
 ).append(
   button,
   menu,
-  addButton,
-  customModal,
-  memoryModal
+  add,
+  custom,
+  memory
 );
 
 
 const grid=
   menu.querySelector(
-    '.zt-grid'
+    '.grid'
   );
-
 
 const state=
   menu.querySelector(
-    '.zt-state'
+    '.state'
   );
 
 
-/* =========================================================
-   RP MEMORY UI
-   ========================================================= */
+/* MEMORY UI */
 
-const mmText=
-  memoryModal.querySelector(
-    '.mm-text'
+const memText=
+  memory.querySelector(
+    '.memtext'
   );
 
-
-const mmEnabled=
-  memoryModal.querySelector(
-    '.mm-enabled'
+const memStatus=
+  memory.querySelector(
+    '.status'
   );
 
-
-const mmStatus=
-  memoryModal.querySelector(
-    '.mm-status'
+const oneShotBtn=
+  memory.querySelector(
+    '.oneshot'
   );
 
-
-const mmSub=
-  memoryModal.querySelector(
-    '.mm-sub'
-  );
-
-
-const mmPreview=
-  memoryModal.querySelector(
-    '.mm-preview'
-  );
-
-
-let mmSaveTimer=
+let memTimer=
   null;
 
-
-function refreshMemoryStatus(
-  label
+function statusText(
+  v=readMem()
 ){
+  if(v.armed){
+    if(v.interval>0){
+      const left=
+        Math.max(
+          1,
+          v.interval-v.turn
+        );
 
-  mmStatus.dataset.on=
-    mmEnabled.checked
-      ? '1'
-      : '0';
+      return (
+        '다음 답변: 1회 주입 대기 · '+
+        '자동주입은 '+
+        left+
+        '턴 후'
+      );
+    }
 
+    return '다음 답변: 1회 주입 대기';
+  }
 
-  mmStatus.textContent=
-
-    label||
-
-    (
-      mmEnabled.checked
-        ? 'INJECT ON'
-        : 'INJECT OFF'
+  if(v.interval>0){
+    return (
+      '자동주입 ON · '+
+      '다음 자동주입까지 '+
+      Math.max(
+        1,
+        v.interval-v.turn
+      )+
+      '턴'
     );
+  }
+
+  return '자동주입 OFF';
 }
 
-
-function loadMemoryUI(){
-
+function refreshMemoryUI(){
   const v=
-    readMemoryCurrent();
+    readMem();
 
+  if(
+    document.activeElement!==
+    memText
+  ){
+    memText.value=
+      v.text;
+  }
 
-  mmText.value=
-    v.text;
-
-
-  mmEnabled.checked=
-    v.enabled;
-
-
-  mmSub.textContent=
-    '이 채팅방 전용 · '+
-    memoryChatKey();
-
-
-  mmPreview.dataset.open=
-    '0';
-
-
-  refreshMemoryStatus();
-}
-
-
-function saveMemoryUI(
-  label
-){
-
-  saveMemoryCurrent({
-
-    enabled:
-      mmEnabled.checked,
-
-    text:
-      mmText.value
-  });
-
-
-  refreshMemoryStatus(
-
-    label||
-
-    (
-      mmEnabled.checked
-
-        ? '저장됨 · INJECT ON'
-
-        : '저장됨 · INJECT OFF'
+  memory
+    .querySelectorAll(
+      '.ival'
     )
-  );
+    .forEach(
+      b=>
+        b.dataset.on=
+          Number(b.dataset.i)===
+          v.interval
+            ?'1'
+            :'0'
+    );
 
+  oneShotBtn.dataset.armed=
+    v.armed
+      ?'1'
+      :'0';
 
-  setTimeout(
-    ()=>refreshMemoryStatus(),
-    800
-  );
+  oneShotBtn.textContent=
+    v.armed
+      ?'1회 주입 취소'
+      :'다음 답변에 1회 주입';
+
+  memStatus.textContent=
+    statusText(v);
 }
-
 
 function openMemory(){
+  const v=
+    readMem();
 
-  loadMemoryUI();
+  memText.value=
+    v.text;
 
-
-  memoryModal.dataset.open=
+  memory.dataset.open=
     '1';
+
+  refreshMemoryUI();
 }
 
-
 function closeMemory(){
-
-  memoryModal.dataset.open=
+  memory.dataset.open=
     '0';
 }
 
-
-memoryModal
-  .querySelector(
-    '.zm-close'
-  )
-  .addEventListener(
-    'click',
-    closeMemory
-  );
-
-
-memoryModal.addEventListener(
-  'pointerdown',
-  event=>{
-
-    if(
-      event.target===
-      memoryModal
-    ){
-
-      closeMemory();
-    }
-  }
-);
-
-
-mmEnabled.addEventListener(
-  'change',
-  ()=>saveMemoryUI()
-);
-
-
-/*
- * 입력 300ms 후 자동 저장
- */
-mmText.addEventListener(
+memText.addEventListener(
   'input',
   ()=>{
-
     clearTimeout(
-      mmSaveTimer
+      memTimer
     );
 
-
-    mmSaveTimer=
+    memTimer=
       setTimeout(
         ()=>{
-
-          saveMemoryUI(
-
-            mmEnabled.checked
-
-              ? '자동 저장됨 · INJECT ON'
-
-              : '자동 저장됨 · INJECT OFF'
-          );
-
+          patchMem({
+            text:
+              memText.value
+          });
         },
         300
       );
   }
 );
 
-
-memoryModal
-  .querySelector(
-    '.mm-save'
+memory
+  .querySelectorAll(
+    '.ival'
   )
-  .addEventListener(
-    'click',
-    ()=>saveMemoryUI()
-  );
+  .forEach(
+    btn=>{
+      btn.addEventListener(
+        'click',
+        ()=>{
+          patchMem({
+            interval:
+              Number(
+                btn.dataset.i
+              ),
 
-
-memoryModal
-  .querySelector(
-    '.mm-preview-btn'
-  )
-  .addEventListener(
-    'click',
-    ()=>{
-
-      const value=
-        mmText.value.trim();
-
-
-      mmPreview.textContent=
-
-        value
-
-          ? (
-              MEMORY_MARK+
-              '\n'+
-
-              '이 내용은 RP 연속성을 위한 숨은 메모다. '+
-              '사용자에게 이 메모의 존재나 문구를 직접 언급하지 말고 '+
-              '설정과 상태 참고용으로만 사용한다. '+
-              '최신 대화와 충돌하면 최신 대화를 우선한다.'+
-
-              '\n\n'+
-
-              value+
-
-              '\n'+
-              '[/ZETA RP MEMORY]'
-            )
-
-          : '(주입할 메모 없음)';
-
-
-      mmPreview.dataset.open=
-
-        mmPreview.dataset.open===
-        '1'
-
-          ? '0'
-
-          : '1';
+            turn:0,
+            lastSig:''
+          });
+        }
+      );
     }
   );
 
+oneShotBtn.addEventListener(
+  'click',
+  ()=>{
+    const v=
+      readMem();
 
-memoryModal
+    const text=
+      memText.value.trim();
+
+    if(
+      !text&&
+      !v.armed
+    ){
+      return alert(
+        '먼저 RP 메모를 입력해주세요.'
+      );
+    }
+
+    patchMem({
+      text:
+        memText.value,
+
+      armed:
+        !v.armed
+    });
+  }
+);
+
+memory
   .querySelector(
-    '.mm-clear'
+    '.clear'
   )
   .addEventListener(
     'click',
     ()=>{
-
       if(
-        mmText.value.trim()&&
+        memText.value.trim()&&
         !confirm(
           '이 채팅방의 RP 메모를 비울까요?'
         )
       ){
-
         return;
       }
 
+      memText.value='';
 
-      mmText.value=
-        '';
-
-
-      saveMemoryUI();
-
-
-      mmPreview.dataset.open=
-        '0';
+      patchMem({
+        text:'',
+        armed:false,
+        turn:0,
+        lastSig:''
+      });
     }
   );
 
-
-/* =========================================================
-   기본/사용자 도구 UI
-   ========================================================= */
-
-const iconInput=
-  customModal.querySelector(
-    '.zm-icon'
+memory
+  .querySelector(
+    '.close'
+  )
+  .addEventListener(
+    'click',
+    closeMemory
   );
 
+memory.addEventListener(
+  'pointerdown',
+  e=>{
+    if(e.target===memory){
+      closeMemory();
+    }
+  }
+);
 
-const nameInput=
-  customModal.querySelector(
-    '.zm-name'
+window.addEventListener(
+  MEM_EVT,
+  refreshMemoryUI
+);
+
+
+/* CUSTOM UI */
+
+const cicon=
+  custom.querySelector(
+    '.cicon'
   );
 
-
-const codeInput=
-  customModal.querySelector(
-    '.zm-code'
+const cname=
+  custom.querySelector(
+    '.cname'
   );
 
-
-const saveBtn=
-  customModal.querySelector(
-    '.zm-save'
+const ccode=
+  custom.querySelector(
+    '.ccode'
   );
 
-
-const listBox=
-  customModal.querySelector(
-    '.zm-list'
+const csave=
+  custom.querySelector(
+    '.save'
   );
 
+const clist=
+  custom.querySelector(
+    '.list'
+  );
 
-let editingId=
+let editing=
   null;
 
-
 const BUILTINS=[
-
   {
     action:'kit',
     icon:'⚙️',
     name:'키트'
   },
-
   {
     action:'feed',
     icon:'💬',
     name:'피드'
   },
-
   {
     action:'theme',
     icon:'✦',
     name:'테마'
   },
-
   {
     action:'phone',
     icon:'☎️',
     name:'폰'
   },
-
   {
     action:'narrator',
     icon:'N×',
     name:'나레삭제'
   },
-
   {
     action:'memory',
     icon:'📌',
@@ -2865,226 +1697,147 @@ const BUILTINS=[
   }
 ];
 
-
-function tile({
-  action,
-  icon,
-  name,
-  customId
-}){
-
+function tile(x){
   const attr=
+    x.customId
+      ?`data-custom-id="${esc(x.customId)}"`
+      :`data-action="${esc(x.action)}"`;
 
-    customId
-
-      ? `data-custom-id="${esc(customId)}"`
-
-      : `data-action="${esc(action)}"`;
-
-
-  return `
-
-<button
-  type="button"
-  class="zt-item"
-  ${attr}
->
-
-  <span class="zt-icon">
-    ${esc(icon)}
-  </span>
-
-  <span class="zt-label">
-    ${esc(name)}
-  </span>
-
-</button>
-`;
+  return (
+    '<button class="item" type="button" '+
+    attr+
+    '>'+
+    '<span class="icon">'+
+    esc(x.icon)+
+    '</span>'+
+    '<span class="label">'+
+    esc(x.name)+
+    '</span>'+
+    '</button>'
+  );
 }
 
-
 function renderGrid(){
-
-  const custom=
-    readCustomTools();
-
-
   grid.innerHTML=
-
     BUILTINS
       .map(tile)
       .join('')
-
     +
-
-    custom
+    readCustom()
       .map(
-        tool=>
+        t=>
           tile({
-
-            customId:
-              tool.id,
-
-            icon:
-              tool.icon||
-              '🧩',
-
-            name:
-              tool.name||
-              '도구'
+            customId:t.id,
+            icon:t.icon||'🧩',
+            name:t.name||'도구'
           })
       )
       .join('');
 }
 
+function resetCustom(){
+  editing=null;
 
-function resetForm(){
+  cicon.value='';
+  cname.value='';
+  ccode.value='';
 
-  editingId=
-    null;
-
-
-  iconInput.value=
-    '';
-
-
-  nameInput.value=
-    '';
-
-
-  codeInput.value=
-    '';
-
-
-  saveBtn.textContent=
+  csave.textContent=
     '추가';
 }
 
-
-function renderList(){
-
+function renderCustomList(){
   const tools=
-    readCustomTools();
+    readCustom();
 
-
-  listBox.innerHTML=
-
+  clist.innerHTML=
     tools.length
 
-      ? tools
-          .map(
-            tool=>`
+      ?tools.map(
+        t=>`
+<div class="entry">
 
-<div class="zm-entry">
+<div>
+${esc(t.icon||'🧩')}
+</div>
 
-  <div class="zm-eicon">
-    ${esc(tool.icon||'🧩')}
-  </div>
+<div class="ename">
+${esc(t.name||'도구')}
+</div>
 
-  <div class="zm-ename">
-    ${esc(tool.name||'도구')}
-  </div>
+<button
+class="mini"
+data-edit="${esc(t.id)}"
+type="button">
+수정
+</button>
 
-  <button
-    type="button"
-    class="zm-mini"
-    data-edit="${esc(tool.id)}"
-  >
-    수정
-  </button>
-
-  <button
-    type="button"
-    class="zm-mini zm-delete"
-    data-delete="${esc(tool.id)}"
-  >
-    삭제
-  </button>
+<button
+class="mini danger"
+data-del="${esc(t.id)}"
+type="button">
+삭제
+</button>
 
 </div>
 `
-          )
-          .join('')
+      ).join('')
 
-      : '<div class="zm-empty">아직 추가한 도구가 없습니다.</div>';
+      :'<div style="padding:10px;text-align:center;color:#ffffff66;font-size:11px">추가한 도구 없음</div>';
 }
 
+function openCustom(){
+  resetCustom();
+  renderCustomList();
 
-function openManager(){
-
-  resetForm();
-
-  renderList();
-
-  customModal.dataset.open=
+  custom.dataset.open=
     '1';
 }
 
-
-function closeManager(){
-
-  customModal.dataset.open=
+function closeCustom(){
+  custom.dataset.open=
     '0';
 }
 
-
-saveBtn.addEventListener(
+csave.addEventListener(
   'click',
   ()=>{
-
     const icon=
-      iconInput.value.trim()||
+      cicon.value.trim()||
       '🧩';
 
-
     const name=
-      nameInput.value.trim();
-
+      cname.value.trim();
 
     const code=
-      normalizeUserCode(
-        codeInput.value
+      normCode(
+        ccode.value
       );
-
 
     if(!name){
-
-      alert(
+      return alert(
         '도구 이름을 입력해주세요.'
       );
-
-      return;
     }
-
 
     if(!code){
-
-      alert(
+      return alert(
         'JavaScript 코드를 입력해주세요.'
       );
-
-      return;
     }
 
-
     const tools=
-      readCustomTools();
+      readCustom();
 
-
-    if(editingId){
-
-      const index=
+    if(editing){
+      const i=
         tools.findIndex(
-          tool=>
-            tool.id===
-            editingId
+          t=>t.id===editing
         );
 
-
-      if(index>=0){
-
-        tools[index]={
-          ...tools[index],
+      if(i>=0){
+        tools[i]={
+          ...tools[i],
           icon,
           name,
           code
@@ -3092,13 +1845,10 @@ saveBtn.addEventListener(
       }
 
     }else{
-
       tools.unshift({
-
         id:
           'u_'+
-          Date.now()
-            .toString(36)+
+          Date.now().toString(36)+
           '_'+
           Math.random()
             .toString(36)
@@ -3110,725 +1860,439 @@ saveBtn.addEventListener(
       });
     }
 
-
-    writeCustomTools(
-      tools
-    );
-
+    writeCustom(tools);
 
     renderGrid();
-
-    renderList();
-
-    resetForm();
+    renderCustomList();
+    resetCustom();
   }
 );
 
-
-customModal
+custom
   .querySelector(
-    '.zm-close'
+    '.reset'
   )
   .addEventListener(
     'click',
-    closeManager
+    resetCustom
   );
 
-
-customModal
+custom
   .querySelector(
-    '.zm-cancel'
+    '.close'
   )
   .addEventListener(
     'click',
-    resetForm
+    closeCustom
   );
 
-
-customModal.addEventListener(
+custom.addEventListener(
   'pointerdown',
-  event=>{
-
-    if(
-      event.target===
-      customModal
-    ){
-
-      closeManager();
+  e=>{
+    if(e.target===custom){
+      closeCustom();
     }
   }
 );
 
-
-listBox.addEventListener(
+clist.addEventListener(
   'click',
-  event=>{
-
-    const edit=
-      event.target.closest(
+  e=>{
+    const eb=
+      e.target.closest(
         '[data-edit]'
       );
 
-
-    const del=
-      event.target.closest(
-        '[data-delete]'
+    const db=
+      e.target.closest(
+        '[data-del]'
       );
 
-
-    if(edit){
-
-      const tool=
-        readCustomTools()
+    if(eb){
+      const t=
+        readCustom()
           .find(
-            item=>
-              item.id===
-              edit.dataset.edit
+            x=>
+              x.id===
+              eb.dataset.edit
           );
 
+      if(!t)return;
 
-      if(!tool){
+      editing=t.id;
 
-        return;
-      }
+      cicon.value=
+        t.icon||'';
 
+      cname.value=
+        t.name||'';
 
-      editingId=
-        tool.id;
+      ccode.value=
+        t.code||'';
 
-
-      iconInput.value=
-        tool.icon||
-        '';
-
-
-      nameInput.value=
-        tool.name||
-        '';
-
-
-      codeInput.value=
-        tool.code||
-        '';
-
-
-      saveBtn.textContent=
+      csave.textContent=
         '저장';
-
-
-      return;
     }
 
-
-    if(del){
-
-      const id=
-        del.dataset.delete;
-
-
+    if(db){
       const tools=
-        readCustomTools();
+        readCustom();
 
-
-      const target=
+      const t=
         tools.find(
-          tool=>
-            tool.id===id
+          x=>
+            x.id===
+            db.dataset.del
         );
 
-
-      if(!target){
-
-        return;
-      }
-
-
       if(
+        !t||
         !confirm(
-          `“${target.name}” 도구를 삭제할까요?`
+          `“${t.name}” 도구를 삭제할까요?`
         )
       ){
-
         return;
       }
 
-
-      writeCustomTools(
-
+      writeCustom(
         tools.filter(
-          tool=>
-            tool.id!==id
+          x=>x.id!==t.id
         )
       );
 
-
-      if(
-        editingId===id
-      ){
-
-        resetForm();
+      if(editing===t.id){
+        resetCustom();
       }
 
-
       renderGrid();
-
-      renderList();
+      renderCustomList();
     }
   }
 );
 
-
-addButton.addEventListener(
+add.addEventListener(
   'click',
   ()=>{
-
     closeMenu();
-
-    openManager();
+    openCustom();
   }
 );
 
 
-/* =========================================================
-   메뉴 / Router 상태
-   ========================================================= */
+/* MENU */
 
 function updateRouterState(){
-
   const on=
-    !!window[
-      ROUTER_KEY
-    ];
-
+    !!window[ROUTER_KEY];
 
   button.dataset.router=
     on
-      ? 'on'
-      : 'off';
-
+      ?'on'
+      :'off';
 
   state.dataset.on=
     on
-      ? '1'
-      : '0';
-
+      ?'1'
+      :'0';
 
   state.textContent=
     on
-      ? 'ROUTER ON'
-      : 'ROUTER …';
+      ?'ROUTER ON'
+      :'ROUTER …';
 }
 
-
 function positionMenu(){
-
   const b=
-    button
-      .getBoundingClientRect();
-
+    button.getBoundingClientRect();
 
   const width=
     menu.offsetWidth||
     286;
 
-
   const height=
     menu.offsetHeight||
     390;
 
-
-  const addSize=
-    46;
-
-
-  const gap=
-    10;
-
-
-  const pad=
-    8;
-
+  const addSize=46;
+  const gap=10;
+  const pad=8;
 
   let left=
-
-    b.left+
-
-    b.width/2-
-
-    width/2;
-
-
-  left=
     Math.max(
-
       pad,
-
       Math.min(
-
-        innerWidth-
-        width-
-        pad,
-
-        left
+        innerWidth-width-pad,
+        b.left+
+        b.width/2-
+        width/2
       )
     );
 
-
-  const totalHeight=
-
+  const total=
     height+
     gap+
     addSize;
 
-
   const top=
+    b.top-total-10>=pad
 
-    b.top-
-    totalHeight-
-    10>=
-    pad
+      ?b.top-total-10
 
-      ? (
-          b.top-
-          totalHeight-
-          10
-        )
-
-      : Math.max(
-
+      :Math.max(
+        pad,
+        Math.min(
+          innerHeight-
+          total-
           pad,
 
-          Math.min(
-
-            innerHeight-
-            totalHeight-
-            pad,
-
-            b.top-
-            totalHeight/2
-          )
-        );
-
+          b.top-
+          total/2
+        )
+      );
 
   menu.style.left=
-    left+
-    'px';
-
+    left+'px';
 
   menu.style.top=
-    top+
-    'px';
+    top+'px';
 
-
-  addButton.style.left=
-
+  add.style.left=
     (
       left+
       width/2-
       addSize/2
     )+
-
     'px';
 
-
-  addButton.style.top=
-
+  add.style.top=
     (
       top+
       height+
       gap
     )+
-
     'px';
 }
 
-
 function openMenu(){
-
   renderGrid();
 
-
-  menu.dataset.open=
-    '1';
-
-
-  addButton.dataset.open=
-    '1';
-
+  menu.dataset.open='1';
+  add.dataset.open='1';
 
   requestAnimationFrame(
     positionMenu
   );
 
-
   updateRouterState();
 }
 
-
 function closeMenu(){
-
-  menu.dataset.open=
-    '0';
-
-
-  addButton.dataset.open=
-    '0';
+  menu.dataset.open='0';
+  add.dataset.open='0';
 }
 
-
 function show(){
-
-  button.style.display=
-    'flex';
-
-
+  button.style.display='flex';
   openMenu();
 }
 
-
-/* =========================================================
-   카드 클릭
-   ========================================================= */
-
 menu.addEventListener(
   'click',
-  event=>{
-
-    const custom=
-      event.target.closest(
+  e=>{
+    const c=
+      e.target.closest(
         '[data-custom-id]'
       );
 
-
-    if(custom){
-
-      const tool=
-        readCustomTools()
+    if(c){
+      const t=
+        readCustom()
           .find(
-            item=>
-              item.id===
-              custom.dataset.customId
+            x=>
+              x.id===
+              c.dataset.customId
           );
-
 
       closeMenu();
 
-
-      if(tool){
-
-        runCustomTool(
-          tool
-        );
+      if(t){
+        runCustom(t);
       }
-
 
       return;
     }
 
-
     const item=
-      event.target.closest(
+      e.target.closest(
         '[data-action]'
       );
 
-
-    if(!item){
-
-      return;
-    }
-
+    if(!item)return;
 
     closeMenu();
 
-
-    const actions={
-
-      kit:
-        openKit,
-
-      feed:
-        openFeed,
-
-      theme:
-        applyTheme,
-
-      phone:
-        openPhone,
-
-      narrator:
-        openNarrator,
-
-      memory:
-        openMemory
-    };
-
-
-    actions[
+    ({
+      kit:openKit,
+      feed:openFeed,
+      theme:applyTheme,
+      phone:openPhone,
+      narrator:openNarrator,
+      memory:openMemory
+    })[
       item.dataset.action
     ]?.();
   }
 );
 
 
-/* =========================================================
-   Z 버튼 드래그
-   ========================================================= */
+/* DRAG */
 
-let pointerId=null;
+let pid=null;
 let moved=false;
 
-let startX=0;
-let startY=0;
-
-let startLeft=0;
-let startTop=0;
-
+let sx=0;
+let sy=0;
+let sl=0;
+let st=0;
 
 button.addEventListener(
   'pointerdown',
-  event=>{
+  e=>{
+    pid=e.pointerId;
+    moved=false;
 
-    pointerId=
-      event.pointerId;
+    const r=
+      button.getBoundingClientRect();
 
+    sx=e.clientX;
+    sy=e.clientY;
 
-    moved=
-      false;
-
-
-    const rect=
-      button
-        .getBoundingClientRect();
-
-
-    startX=
-      event.clientX;
-
-
-    startY=
-      event.clientY;
-
-
-    startLeft=
-      rect.left;
-
-
-    startTop=
-      rect.top;
-
-
-    button.dataset.dragging=
-      '1';
-
+    sl=r.left;
+    st=r.top;
 
     try{
-
       button.setPointerCapture(
-        pointerId
+        pid
       );
-
     }catch(_){}
 
-
-    event.preventDefault();
+    e.preventDefault();
   }
 );
 
-
 button.addEventListener(
   'pointermove',
-  event=>{
-
+  e=>{
     if(
-      pointerId===
-      null||
-      event.pointerId!==
-      pointerId
+      pid===null||
+      e.pointerId!==pid
     ){
-
       return;
     }
 
-
     const dx=
-      event.clientX-
-      startX;
-
+      e.clientX-sx;
 
     const dy=
-      event.clientY-
-      startY;
-
+      e.clientY-sy;
 
     if(
       !moved&&
-      Math.hypot(
-        dx,
-        dy
-      )>5
+      Math.hypot(dx,dy)>5
     ){
-
       moved=true;
-
       closeMenu();
     }
 
-
-    if(!moved){
-
-      return;
-    }
-
+    if(!moved)return;
 
     const x=
-
       Math.max(
-
         5,
-
         Math.min(
-
           innerWidth-
           button.offsetWidth-
           5,
 
-          startLeft+
-          dx
+          sl+dx
         )
       );
 
-
     const y=
-
       Math.max(
-
         5,
-
         Math.min(
-
           innerHeight-
           button.offsetHeight-
           5,
 
-          startTop+
-          dy
+          st+dy
         )
       );
 
+    Object.assign(
+      button.style,
+      {
+        left:x+'px',
+        top:y+'px',
+        right:'auto',
+        bottom:'auto'
+      }
+    );
 
-    button.style.left=
-      x+
-      'px';
-
-
-    button.style.top=
-      y+
-      'px';
-
-
-    button.style.right=
-      'auto';
-
-
-    button.style.bottom=
-      'auto';
-
-
-    event.preventDefault();
+    e.preventDefault();
   }
 );
 
-
-function finishDrag(
-  event
-){
-
+function dragEnd(e){
   if(
-    pointerId===
-    null||
+    pid===null||
     (
-      event&&
-      event.pointerId!==
-      pointerId
+      e&&
+      e.pointerId!==pid
     )
   ){
-
     return;
   }
 
-
   try{
-
     button.releasePointerCapture(
-      pointerId
+      pid
     );
-
   }catch(_){}
 
-
-  button.dataset.dragging=
-    '0';
-
-
   if(moved){
+    const r=
+      button.getBoundingClientRect();
 
-    const rect=
-      button
-        .getBoundingClientRect();
-
-
-    try{
-
-      localStorage.setItem(
-
-        POS_KEY,
-
-        JSON.stringify({
-
-          x:
-            rect.left,
-
-          y:
-            rect.top
-        })
-      );
-
-    }catch(_){}
+    localStorage.setItem(
+      POS_KEY,
+      JSON.stringify({
+        x:r.left,
+        y:r.top
+      })
+    );
 
   }else{
-
     openMenu();
   }
 
-
-  pointerId=
-    null;
-
-
-  moved=
-    false;
+  pid=null;
+  moved=false;
 }
-
 
 button.addEventListener(
   'pointerup',
-  finishDrag
+  dragEnd
 );
-
 
 button.addEventListener(
   'pointercancel',
-  finishDrag
+  dragEnd
 );
 
-
-/* =========================================================
-   위치 복원
-   ========================================================= */
-
 try{
-
-  const pos=
+  const p=
     JSON.parse(
       localStorage.getItem(
         POS_KEY
@@ -3836,252 +2300,154 @@ try{
       'null'
     );
 
-
   if(
-    pos&&
-    Number.isFinite(
-      pos.x
-    )&&
-    Number.isFinite(
-      pos.y
-    )
+    p&&
+    Number.isFinite(p.x)&&
+    Number.isFinite(p.y)
   ){
+    Object.assign(
+      button.style,
+      {
+        left:
+          Math.max(
+            5,
+            Math.min(
+              innerWidth-49,
+              p.x
+            )
+          )+
+          'px',
 
-    button.style.left=
+        top:
+          Math.max(
+            5,
+            Math.min(
+              innerHeight-49,
+              p.y
+            )
+          )+
+          'px',
 
-      Math.max(
-
-        5,
-
-        Math.min(
-
-          innerWidth-
-          49,
-
-          pos.x
-        )
-      )+
-
-      'px';
-
-
-    button.style.top=
-
-      Math.max(
-
-        5,
-
-        Math.min(
-
-          innerHeight-
-          49,
-
-          pos.y
-        )
-      )+
-
-      'px';
-
-
-    button.style.right=
-      'auto';
-
-
-    button.style.bottom=
-      'auto';
+        right:'auto',
+        bottom:'auto'
+      }
+    );
   }
-
 }catch(_){}
 
-
-/* =========================================================
-   메뉴 밖 클릭
-   ========================================================= */
-
-function outsidePointer(
-  event
-){
-
+function outside(e){
   if(
     menu.dataset.open!==
     '1'
   ){
-
     return;
   }
-
 
   if(
-    menu.contains(
-      event.target
-    )||
-
-    button.contains(
-      event.target
-    )||
-
-    addButton.contains(
-      event.target
-    )
+    menu.contains(e.target)||
+    button.contains(e.target)||
+    add.contains(e.target)
   ){
-
     return;
   }
-
 
   closeMenu();
 }
 
-
 document.addEventListener(
   'pointerdown',
-  outsidePointer,
+  outside,
   true
 );
 
-
-/* =========================================================
-   Resize
-   ========================================================= */
-
-function onResize(){
-
+function resize(){
   if(
     menu.dataset.open===
     '1'
   ){
-
     requestAnimationFrame(
       positionMenu
     );
   }
 }
 
-
 window.addEventListener(
   'resize',
-  onResize
+  resize
 );
 
 
-/* =========================================================
-   destroy
-   ========================================================= */
+/* API */
 
 function destroy(){
-
   document.removeEventListener(
     'pointerdown',
-    outsidePointer,
+    outside,
     true
   );
 
-
   window.removeEventListener(
     'resize',
-    onResize
+    resize
   );
 
-
-  Object.values(
-    IDS
-  ).forEach(
-    id=>
-      document
-        .getElementById(id)
-        ?.remove()
+  window.removeEventListener(
+    MEM_EVT,
+    refreshMemoryUI
   );
 
+  Object.values(IDS)
+    .forEach(
+      id=>
+        document
+          .getElementById(id)
+          ?.remove()
+    );
 
   try{
-
-    delete window[
-      KEY
-    ];
-
+    delete window[KEY];
   }catch(_){
-
-    window[KEY]=
-      null;
+    window[KEY]=null;
   }
 }
 
-
-/* =========================================================
-   API
-   ========================================================= */
-
 window[KEY]={
-
   show,
-
-  open:
-    openMenu,
-
-  close:
-    closeMenu,
-
+  open:openMenu,
+  close:closeMenu,
   destroy,
-
   ensureRouter,
 
   memory:{
-
-    open:
-      openMemory,
-
-    read:
-      readMemoryCurrent,
-
-    get:
-      getMemoryText
+    open:openMemory,
+    read:readMem,
+    arm:()=>patchMem({
+      armed:true
+    })
   },
 
   actions:{
-
-    kit:
-      openKit,
-
-    feed:
-      openFeed,
-
-    theme:
-      applyTheme,
-
-    phone:
-      openPhone,
-
-    narrator:
-      openNarrator,
-
-    memory:
-      openMemory
+    kit:openKit,
+    feed:openFeed,
+    theme:applyTheme,
+    phone:openPhone,
+    narrator:openNarrator,
+    memory:openMemory
   },
 
   custom:{
-
-    open:
-      openManager,
-
-    read:
-      readCustomTools
+    open:openCustom,
+    read:readCustom
   }
 };
 
-
-/* =========================================================
-   시작
-   ========================================================= */
-
 renderGrid();
-
+refreshMemoryUI();
 updateRouterState();
-
 ensureRouter();
 
-
 console.log(
-  '[ZETA Toolbox] READY + RP MEMORY INJECTOR'
+  '[ZETA Toolbox] READY + RP MEMORY v2'
 );
 
 })();
