@@ -181,61 +181,56 @@ function applyTheme(){
 }
 
 
-function openNarrator(){
-
-  loadScript(
-    URLS.narrator
-  );
-}
-
-
-function openPhone(){
+async function openNarrator(){
 
   try{
-    window.__INPOCKET__?.destroy?.();
-  }catch(_){}
+
+    const url=
+      'https://raw.githubusercontent.com/softly320/zeta-router/main/zeta-narrator.js?cb='+
+      Date.now();
 
 
-  document
-    .querySelectorAll(
-      'script[data-zeta-toolbox-inpocket]'
-    )
-    .forEach(s=>s.remove());
+    const response=
+      await fetch(
+        url,
+        {
+          cache:'no-store'
+        }
+      );
 
 
-  const s=
-    document.createElement('script');
+    if(!response.ok){
+
+      throw new Error(
+        'HTTP '+
+        response.status
+      );
+    }
 
 
-  s.dataset.zetaToolboxInpocket='1';
+    const code=
+      await response.text();
 
 
-  s.src=
-    URLS.phone+
-    '?cb='+
-    Date.now();
+    (0,eval)(code);
 
 
-  s.onload=()=>{
+  }catch(error){
 
-    try{
-      window.__INPOCKET__?.open?.();
-    }catch(_){}
-  };
+    console.error(
+      '[ZETA Toolbox] narrator load error',
+      error
+    );
 
-
-  s.onerror=()=>{
 
     alert(
-      'inPocket 스크립트를 불러오지 못했습니다.'
+      '나레삭제 로드 실패\n'+
+      (
+        error?.message||
+        error
+      )
     );
-  };
-
-
-  (
-    document.head ||
-    document.documentElement
-  ).appendChild(s);
+  }
 }
 
 
