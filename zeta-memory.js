@@ -528,6 +528,11 @@ function scheduleScan(){
    화면에서 메모 숨김
 ============================== */
 
+/* ==============================
+   화면에서 RP MEMORY 완전히 숨김
+   @: 나레이터 껍데기까지 제거
+============================== */
+
 function markerElements(){
 
   const out=[];
@@ -539,26 +544,25 @@ function markerElements(){
       ['SCRIPT','STYLE','TEXTAREA','INPUT'].includes(el.tagName)
     )continue;
 
-    const txt=el.textContent||'';
+    const text=el.textContent||'';
 
     if(
-      !txt.includes(START)||
-      !txt.includes(END)
+      !text.includes(START)||
+      !text.includes(END)
     )continue;
 
-    let childHas=false;
+    /*
+     * START/END를 가진 가장 안쪽 요소만
+     */
+    const childHas=
+      [...el.children].some(child=>{
+        const t=child.textContent||'';
 
-    for(const child of el.children){
-      const t=child.textContent||'';
-
-      if(
-        t.includes(START)&&
-        t.includes(END)
-      ){
-        childHas=true;
-        break;
-      }
-    }
+        return(
+          t.includes(START)&&
+          t.includes(END)
+        );
+      });
 
     if(!childHas)
       out.push(el);
@@ -567,87 +571,373 @@ function markerElements(){
   return out;
 }
 
-function hideInElement(el){
+
+/*
+ * Zeta가
+ *
+ * @: [ZETA_RP_MEMORY] ... [/ZETA_RP_MEMORY]
+ *
+ * 를 별도의 narrator 블록으로 렌더링했다면
+ * 그 블록 전체를 찾아냄.
+ */
+function findMemoryWrapper(el){
+
+  let cur=el;
+
+  for(let depth=0;depth<8;depth++){
+
+    if(
+      !cur||
+      cur===document.body||
+      cur.closest('#'+ID)
+    )break;
+
+    const text=
+      (cur.textContent||'')
+        .replace(/\u00a0/g,' ');
+
+    const start=
+      text.indexOf(START);
+
+    const end=
+      text.indexOf(END,start);
+
+    if(
+      start>=0&&
+      end>=0
+    ){
+
+      const at=
+        text.lastIndexOf(
+          '@:',
+          start
+        );
+
+      if(at>=0){
+
+        const before=
+          text
+            .slice(0,at)
+            .trim();
+
+        const between=
+          text
+            .slice(
+              at+2,
+              start
+            )
+            .trim();
+
+        const after=
+          text
+            .slice(
+              end+END.length
+            )
+            .trim();
+
+        /*
+         * 이 DOM이 RP 메모 전용 블록이면
+         * 통째로 숨김.
+         *
+         * 이렇게 해야 @:용 아이콘/여백까지 사라짐.
+         */
+        if(
+          !before&&
+          !between&&
+          !after
+        ){
+          return cur;
+        }
+      }
+    }
+
+    cur=cur.parentElement;
+  }
+
+  return null;
+}
+
+
+/*
+ * 별도 narrator wrapper를 못 찾은 경우
+ * 텍스트 Range로 @:부터 END까지 제거
+ */
+function removeMemoryRange(el){
+
+  /*
+   * @:와 marker가 같이 들어있는
+   * 가장 가까운 부모를 탐색
+   */
+  let host=el;
+
+  for(let depth=0;depth<7;depth++){
+
+    if(
+      !host||
+      host===document.body
+    )break;
+
+    const text=
+      host.textContent||'';
+
+    const start=
+      text.indexOf(START);
+
+    if(start>=0){
+
+      const at=
+        text.lastIndexOf(
+          '@:',
+          start
+        );
+
+      if(at>=0){
+        break;
+      }
+    }
+
+    host=host.parentElement;
+  }
+
+  if(
+    !host||
+    host===document.body
+  ){
+    host=el;
+  }
+
 
   const walker=
     document.createTreeWalker(
-      el,
-      NodeFilter.SHOW_TEXT
+      host,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node){
+
+          const p=
+            node.parentElement;
+
+          if(
+            !p||
+            p.closest('#'+ID)||
+            ['SCRIPT','STYLE','TEXTAREA','INPUT'].includes(p.tagName)
+          ){
+            return NodeFilter.FILTER_REJECT;
+          }
+
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
     );
+
 
   const nodes=[];
-  let n,total='';
 
-  while(n=walker.nextNode()){
+  let node;
+  let total='';
+
+
+  while(
+    node=
+      walker.nextNode()
+  ){
 
     nodes.push({
-      node:n,
+      node,
       start:total.length,
-      end:total.length+n.nodeValue.length
+      end:
+        total.length+
+        node.nodeValue.length
     });
 
-    total+=n.nodeValue;
+    total+=
+      node.nodeValue;
   }
 
-  let s=
+
+  let start=
     total.indexOf(START);
 
-  if(s<0)return;
+  if(start<0)return;
 
-  let e=
-    total.indexOf(END,s);
 
-  if(e<0)return;
+  let end=
+    total.indexOf(
+      END,
+      start
+    );
 
-  e+=END.length;
+  if(end<0)return;
 
-  const pre=
-    total.slice(0,s)
-      .match(/\s*@:\s*$/);
 
-  if(pre)
-    s-=pre[0].length;
+  end+=
+    END.length;
 
-  const a=
+
+  /*
+   * ★ START 앞에 있는 @:까지 포함
+   */
+  const at=
+    total.lastIndexOf(
+      '@:',
+      start
+    );
+
+
+  if(
+    at>=0&&
+    /^\s*$/.test(
+      total.slice(
+        at+2,
+        start
+      )
+    )
+  ){
+    start=at;
+  }
+
+
+  /*
+   * 바로 앞 줄바꿈/공백도 같이 먹음
+   */
+  while(
+    start>0&&
+    /[\s\u00a0]/.test(
+      total[
+        start-1
+      ]
+    )
+  ){
+    start--;
+  }
+
+
+  const first=
     nodes.find(
-      x=>s>=x.start&&s<=x.end
+      x=>
+        start>=x.start&&
+        start<=x.end
     );
 
-  const z=
-    [...nodes].reverse().find(
-      x=>e>=x.start&&e<=x.end
-    );
 
-  if(!a||!z)return;
+  const last=
+    [...nodes]
+      .reverse()
+      .find(
+        x=>
+          end>=x.start&&
+          end<=x.end
+      );
+
+
+  if(
+    !first||
+    !last
+  )return;
+
 
   try{
-    const r=document.createRange();
 
-    r.setStart(
-      a.node,
-      Math.max(0,s-a.start)
+    const range=
+      document.createRange();
+
+
+    range.setStart(
+      first.node,
+      Math.max(
+        0,
+        start-first.start
+      )
     );
 
-    r.setEnd(
-      z.node,
-      Math.max(0,e-z.start)
+
+    range.setEnd(
+      last.node,
+      Math.max(
+        0,
+        end-last.start
+      )
     );
 
-    r.deleteContents();
-  }catch{}
+
+    range.deleteContents();
+
+
+    /*
+     * 삭제 후 빈 narrator 블록이 됐다면
+     * 그 껍데기도 숨김
+     */
+    if(
+      !host.textContent.trim()
+    ){
+
+      host.style.setProperty(
+        'display',
+        'none',
+        'important'
+      );
+    }
+
+  }catch(e){
+
+    console.warn(
+      '[ZETA RP MEMORY hide]',
+      e
+    );
+  }
 }
+
 
 function hideMemory(){
-  markerElements()
-    .forEach(hideInElement);
+
+  for(
+    const el
+    of markerElements()
+  ){
+
+    const wrapper=
+      findMemoryWrapper(el);
+
+
+    if(wrapper){
+
+      /*
+       * 최우선:
+       * @: + 메모가 들어있는
+       * narrator UI 자체를 숨긴다.
+       */
+      wrapper.style.setProperty(
+        'display',
+        'none',
+        'important'
+      );
+
+      wrapper.dataset.zetaRpMemoryHidden=
+        '1';
+
+    }else{
+
+      /*
+       * DOM 구조가 다를 때 fallback
+       */
+      removeMemoryRange(el);
+    }
+  }
 }
 
+
 function scheduleHide(){
-  clearTimeout(hideTimer);
-  hideTimer=setTimeout(
-    hideMemory,
-    100
+
+  clearTimeout(
+    hideTimer
   );
+
+
+  hideTimer=
+    setTimeout(
+      hideMemory,
+      80
+    );
 }
 
 
