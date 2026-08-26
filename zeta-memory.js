@@ -533,9 +533,22 @@ function scheduleScan(){
    @: 나레이터 껍데기까지 제거
 ============================== */
 
-function markerElements(){
+/* ==============================
+   RP 메모 화면에서 영구 숨김
+   React 재렌더링 대응
+============================== */
 
-  const out=[];
+const HIDE_WATCH='__ZETA_RP_MEMORY_HIDE_WATCH__';
+
+try{
+  clearInterval(window[HIDE_WATCH]);
+}catch(_){}
+
+
+/* 메모가 들어있는 가장 안쪽 DOM 찾기 */
+function memoryElements(){
+
+  const found=[];
 
   for(const el of document.querySelectorAll('body *')){
 
@@ -551,12 +564,11 @@ function markerElements(){
       !text.includes(END)
     )continue;
 
-    /*
-     * START/END를 가진 가장 안쪽 요소만
-     */
+
+    /* 자식 중에도 marker가 있으면 부모는 제외 */
     const childHas=
-      [...el.children].some(child=>{
-        const t=child.textContent||'';
+      [...el.children].some(c=>{
+        const t=c.textContent||'';
 
         return(
           t.includes(START)&&
@@ -564,27 +576,32 @@ function markerElements(){
         );
       });
 
-    if(!childHas)
-      out.push(el);
+    if(!childHas){
+      found.push(el);
+    }
   }
 
-  return out;
+  return found;
 }
 
 
 /*
- * Zeta가
+ * marker부터 위로 올라가면서
  *
- * @: [ZETA_RP_MEMORY] ... [/ZETA_RP_MEMORY]
+ * @:
+ * [ZETA_RP_MEMORY] ... [/...]
  *
- * 를 별도의 narrator 블록으로 렌더링했다면
- * 그 블록 전체를 찾아냄.
+ * 만 들어있는 전용 narrator wrapper를 찾는다.
+ *
+ * 원래 {{char}} 본문이 들어있는 부모까지는
+ * 절대 숨기지 않음.
  */
-function findMemoryWrapper(el){
+function memoryWrapper(el){
 
   let cur=el;
+  let best=el;
 
-  for(let depth=0;depth<8;depth++){
+  for(let i=0;i<10;i++){
 
     if(
       !cur||
@@ -596,286 +613,139 @@ function findMemoryWrapper(el){
       (cur.textContent||'')
         .replace(/\u00a0/g,' ');
 
-    const start=
+
+    const s=
       text.indexOf(START);
 
-    const end=
-      text.indexOf(END,start);
-
-    if(
-      start>=0&&
-      end>=0
-    ){
-
-      const at=
-        text.lastIndexOf(
-          '@:',
-          start
-        );
-
-      if(at>=0){
-
-        const before=
-          text
-            .slice(0,at)
-            .trim();
-
-        const between=
-          text
-            .slice(
-              at+2,
-              start
-            )
-            .trim();
-
-        const after=
-          text
-            .slice(
-              end+END.length
-            )
-            .trim();
-
-        /*
-         * 이 DOM이 RP 메모 전용 블록이면
-         * 통째로 숨김.
-         *
-         * 이렇게 해야 @:용 아이콘/여백까지 사라짐.
-         */
-        if(
-          !before&&
-          !between&&
-          !after
-        ){
-          return cur;
-        }
-      }
-    }
-
-    cur=cur.parentElement;
-  }
-
-  return null;
-}
-
-
-/*
- * 별도 narrator wrapper를 못 찾은 경우
- * 텍스트 Range로 @:부터 END까지 제거
- */
-function removeMemoryRange(el){
-
-  /*
-   * @:와 marker가 같이 들어있는
-   * 가장 가까운 부모를 탐색
-   */
-  let host=el;
-
-  for(let depth=0;depth<7;depth++){
-
-    if(
-      !host||
-      host===document.body
-    )break;
-
-    const text=
-      host.textContent||'';
-
-    const start=
-      text.indexOf(START);
-
-    if(start>=0){
-
-      const at=
-        text.lastIndexOf(
-          '@:',
-          start
-        );
-
-      if(at>=0){
-        break;
-      }
-    }
-
-    host=host.parentElement;
-  }
-
-  if(
-    !host||
-    host===document.body
-  ){
-    host=el;
-  }
-
-
-  const walker=
-    document.createTreeWalker(
-      host,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode(node){
-
-          const p=
-            node.parentElement;
-
-          if(
-            !p||
-            p.closest('#'+ID)||
-            ['SCRIPT','STYLE','TEXTAREA','INPUT'].includes(p.tagName)
-          ){
-            return NodeFilter.FILTER_REJECT;
-          }
-
-          return NodeFilter.FILTER_ACCEPT;
-        }
-      }
-    );
-
-
-  const nodes=[];
-
-  let node;
-  let total='';
-
-
-  while(
-    node=
-      walker.nextNode()
-  ){
-
-    nodes.push({
-      node,
-      start:total.length,
-      end:
-        total.length+
-        node.nodeValue.length
-    });
-
-    total+=
-      node.nodeValue;
-  }
-
-
-  let start=
-    total.indexOf(START);
-
-  if(start<0)return;
-
-
-  let end=
-    total.indexOf(
-      END,
-      start
-    );
-
-  if(end<0)return;
-
-
-  end+=
-    END.length;
-
-
-  /*
-   * ★ START 앞에 있는 @:까지 포함
-   */
-  const at=
-    total.lastIndexOf(
-      '@:',
-      start
-    );
-
-
-  if(
-    at>=0&&
-    /^\s*$/.test(
-      total.slice(
-        at+2,
-        start
-      )
-    )
-  ){
-    start=at;
-  }
-
-
-  /*
-   * 바로 앞 줄바꿈/공백도 같이 먹음
-   */
-  while(
-    start>0&&
-    /[\s\u00a0]/.test(
-      total[
-        start-1
-      ]
-    )
-  ){
-    start--;
-  }
-
-
-  const first=
-    nodes.find(
-      x=>
-        start>=x.start&&
-        start<=x.end
-    );
-
-
-  const last=
-    [...nodes]
-      .reverse()
-      .find(
-        x=>
-          end>=x.start&&
-          end<=x.end
+    const e=
+      text.indexOf(
+        END,
+        s
       );
 
 
-  if(
-    !first||
-    !last
-  )return;
-
-
-  try{
-
-    const range=
-      document.createRange();
-
-
-    range.setStart(
-      first.node,
-      Math.max(
-        0,
-        start-first.start
-      )
-    );
-
-
-    range.setEnd(
-      last.node,
-      Math.max(
-        0,
-        end-last.start
-      )
-    );
-
-
-    range.deleteContents();
+    if(
+      s<0||
+      e<0
+    )break;
 
 
     /*
-     * 삭제 후 빈 narrator 블록이 됐다면
-     * 그 껍데기도 숨김
+     * 메모 블록 제거
      */
-    if(
-      !host.textContent.trim()
+    let rest=
+      (
+        text.slice(0,s)+
+        text.slice(
+          e+END.length
+        )
+      );
+
+
+    /*
+     * @:도 제거
+     */
+    rest=
+      rest
+        .replace(
+          /@\s*:/g,
+          ''
+        )
+        .replace(
+          /\s+/g,
+          ''
+        );
+
+
+    /*
+     * 메모와 @: 외에 아무것도 없다면
+     * 이 부모까지 통째로 숨겨도 안전
+     */
+    if(!rest){
+
+      best=cur;
+      cur=cur.parentElement;
+
+      continue;
+    }
+
+
+    /*
+     * 다른 실제 대사/지문이 들어오기 시작했으므로
+     * 여기서 중지
+     */
+    break;
+  }
+
+
+  return best;
+}
+
+
+/* 실제 숨김 */
+function hideMemory(){
+
+  try{
+
+    for(
+      const el
+      of memoryElements()
     ){
 
-      host.style.setProperty(
+      const wrap=
+        memoryWrapper(el);
+
+
+      wrap.style.setProperty(
         'display',
         'none',
         'important'
       );
+
+
+      wrap.style.setProperty(
+        'visibility',
+        'hidden',
+        'important'
+      );
+
+
+      wrap.style.setProperty(
+        'height',
+        '0',
+        'important'
+      );
+
+
+      wrap.style.setProperty(
+        'min-height',
+        '0',
+        'important'
+      );
+
+
+      wrap.style.setProperty(
+        'margin',
+        '0',
+        'important'
+      );
+
+
+      wrap.style.setProperty(
+        'padding',
+        '0',
+        'important'
+      );
+
+
+      wrap.style.setProperty(
+        'overflow',
+        'hidden',
+        'important'
+      );
+
+
+      wrap.dataset.zetaRpMemoryHidden='1';
     }
 
   }catch(e){
@@ -888,44 +758,10 @@ function removeMemoryRange(el){
 }
 
 
-function hideMemory(){
-
-  for(
-    const el
-    of markerElements()
-  ){
-
-    const wrapper=
-      findMemoryWrapper(el);
-
-
-    if(wrapper){
-
-      /*
-       * 최우선:
-       * @: + 메모가 들어있는
-       * narrator UI 자체를 숨긴다.
-       */
-      wrapper.style.setProperty(
-        'display',
-        'none',
-        'important'
-      );
-
-      wrapper.dataset.zetaRpMemoryHidden=
-        '1';
-
-    }else{
-
-      /*
-       * DOM 구조가 다를 때 fallback
-       */
-      removeMemoryRange(el);
-    }
-  }
-}
-
-
+/*
+ * mutation이 몰려올 때마다 즉시 연타하지 않고
+ * 살짝 묶어서 실행
+ */
 function scheduleHide(){
 
   clearTimeout(
@@ -935,10 +771,36 @@ function scheduleHide(){
 
   hideTimer=
     setTimeout(
-      hideMemory,
-      80
+      ()=>{
+        hideMemory();
+
+        /*
+         * React가 한 박자 뒤에 또 그리는 경우 대비
+         */
+        setTimeout(
+          hideMemory,
+          120
+        );
+
+        setTimeout(
+          hideMemory,
+          350
+        );
+      },
+      30
     );
 }
+
+
+/*
+ * MutationObserver가 놓치는
+ * React 재사용/가상화까지 보험으로 감시.
+ */
+window[HIDE_WATCH]=
+  setInterval(
+    hideMemory,
+    700
+  );
 
 
 /* ==============================
