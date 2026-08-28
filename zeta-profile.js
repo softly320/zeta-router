@@ -1,416 +1,123 @@
 (()=>{'use strict';
 
-const W=window;
-const D=document;
+const W=window,D=document,K='__ZETA_PROFILE__';
+const RUN='https://zreading.pages.dev/run.js';
+const HOST='zk-reading-host';
 
-const K='__ZETA_PROFILE__';
+const ROOM='ZETAKIT_READING_ROOM_CONTEXT_V1';
+const USER='ZETAKIT_READING_USER_PROFILE_CACHE_V1';
+const PLOT='ZETAKIT_READING_PLOT_CACHE_V1';
+const ROOMSET='ZETAKIT_READING_ROOM_SETTINGS_V1';
 
-try{
-  W[K]?.destroy?.();
-}catch(_){}
+const MARK='[ZETA_SHARED_PROFILE_CONTEXT]';
 
+try{W[K]?.destroy?.()}catch(_){}
 
-/* =========================================
-   Reading 저장소
-========================================= */
-
-const ROOM_KEY=
-  'ZETAKIT_READING_ROOM_CONTEXT_V1';
-
-const USER_KEY=
-  'ZETAKIT_READING_USER_PROFILE_CACHE_V1';
-
-const PLOT_KEY=
-  'ZETAKIT_READING_PLOT_CACHE_V1';
-
-const SETTINGS_KEY=
-  'ZETAKIT_READING_ROOM_SETTINGS_V1';
-
-const READING_HOST=
-  'zk-reading-host';
-
-const USER_TTL=
-  30*60*1000;
-
-const PLOT_TTL=
-  7*24*60*60*1000;
-
-const MARK=
-  '[ZETA_SHARED_PROFILE_CONTEXT]';
-
-
-/* =========================================
-   원본 네트워크
-========================================= */
-
-const X=
-  XMLHttpRequest.prototype;
-
-const OF=
-  W.fetch;
-
-const OO=
-  X.open;
-
-const OS=
-  X.send;
-
+const X=XMLHttpRequest.prototype;
+const OF=W.fetch,OO=X.open,OS=X.send;
 
 let current=null;
 let running=null;
-
-/*
- * prepare() 이후 모델 요청에만
- * 프로필을 주입한다.
- */
 let armedUntil=0;
 
-
-const sleep=ms=>
-  new Promise(
-    r=>setTimeout(r,ms)
-  );
-
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 function clean(v){
-
   return String(v??'')
-
-    .replace(
-      /[\u200b\u2060\ufeff]/g,
-      ''
-    )
-
-    .replace(
-      /\r/g,
-      ''
-    )
-
-    .replace(
-      /[ \t]+\n/g,
-      '\n'
-    )
-
-    .replace(
-      /\n{3,}/g,
-      '\n\n'
-    )
-
+    .replace(/[\u200b\u2060\ufeff]/g,'')
+    .replace(/\r/g,'')
+    .replace(/[ \t]+\n/g,'\n')
+    .replace(/\n{3,}/g,'\n\n')
     .trim();
 }
 
-
-function jget(
-  key,
-  fallback={}
-){
-
+function jget(k,f={}){
   try{
-
-    const raw=
-      localStorage.getItem(
-        key
-      );
-
-    if(raw==null)
-      return fallback;
-
-    const value=
-      JSON.parse(raw);
-
-    return value&&
-      typeof value==='object'
-        ?value
-        :fallback;
-
+    const x=JSON.parse(localStorage.getItem(k)||'null');
+    return x&&typeof x==='object'?x:f;
   }catch(_){
-
-    return fallback;
+    return f;
   }
 }
-
 
 function roomId(){
+  const m=String(location.pathname||'').match(/\/rooms\/([^/?#]+)/i);
+  if(!m)return'';
+  try{return decodeURIComponent(m[1])}catch(_){return m[1]}
+}
 
-  const match=
-    String(
-      location.pathname||
-      ''
-    )
-      .match(
-        /\/rooms\/([^/?#]+)/i
-      );
+function plotId(rid=roomId()){
+  return String(jget(ROOM)?.[rid]?.plotId||'');
+}
 
-
-  if(!match)
-    return '';
-
-
-  try{
-    return decodeURIComponent(
-      match[1]
-    );
-  }catch(_){
-    return match[1];
+function first(o,keys,f=''){
+  if(!o||typeof o!=='object')return f;
+  for(const k of keys){
+    const v=o[k];
+    if(v!==undefined&&v!==null&&v!=='')return v;
   }
+  return f;
 }
 
-
-function plotId(
-  rid=roomId()
-){
-
-  return String(
-    jget(ROOM_KEY)
-      ?.[rid]
-      ?.plotId||
-    ''
-  );
+function plotRoot(p){
+  if(!p||typeof p!=='object')return{};
+  if(p.plot&&typeof p.plot==='object')return p.plot;
+  if(p.data?.plot&&typeof p.data.plot==='object')return p.data.plot;
+  if(p.data&&typeof p.data==='object')return p.data;
+  return p;
 }
 
-
-function first(
-  obj,
-  keys,
-  fallback=''
-){
-
-  if(
-    !obj||
-    typeof obj!=='object'
-  )
-    return fallback;
-
-
-  for(
-    const key of
-    keys
-  ){
-
-    const value=
-      obj[key];
-
-    if(
-      value!==undefined&&
-      value!==null&&
-      value!==''
-    )
-      return value;
-  }
-
-
-  return fallback;
-}
-
-
-function plotRoot(
-  payload
-){
-
-  if(
-    !payload||
-    typeof payload!=='object'
-  )
-    return {};
-
-
-  if(
-    payload.plot&&
-    typeof payload.plot==='object'
-  )
-    return payload.plot;
-
-
-  if(
-    payload.data?.plot&&
-    typeof payload.data.plot===
-      'object'
-  )
-    return payload.data.plot;
-
-
-  if(
-    payload.data&&
-    typeof payload.data==='object'
-  )
-    return payload.data;
-
-
-  return payload;
-}
-
-
-/* =========================================
-   현재 캐릭터 이름 추정
-   Reading이 이미 로드한 ZetaChatDOM 이용
-========================================= */
-
-function currentCharacterName(){
-
-  const shared=
-    W.ZetaChatDOM;
-
-
-  if(
-    !shared||
-    typeof shared.extractRecords!==
-      'function'
-  )
-    return '';
-
-
+function currentCharName(){
   try{
+    const z=W.ZetaChatDOM;
+    if(!z?.extractRecords)return'';
 
-    const records=
-      shared.extractRecords({
-        root:D,
-        includeStatus:false
-      })||[];
+    const a=z.extractRecords({
+      root:D,
+      includeStatus:false
+    })||[];
 
-
-    for(
-      let i=records.length-1;
-      i>=0;
-      i--
-    ){
-
-      const r=
-        records[i];
-
-
-      if(
-        r&&
-        r.role==='character'&&
-        clean(r.name)
-      )
-        return clean(
-          r.name
-        );
+    for(let i=a.length-1;i>=0;i--){
+      const r=a[i];
+      if(r?.role==='character'&&clean(r.name))
+        return clean(r.name);
     }
-
   }catch(_){}
 
-
-  return '';
+  return'';
 }
 
-
-/* =========================================
-   Plot 캐시 → CHAR 프로필
-========================================= */
-
-function characterFromPlot(
-  payload
-){
-
-  const root=
-    plotRoot(payload);
-
+function charFromPlot(payload){
+  const root=plotRoot(payload);
 
   let chars=
-    Array.isArray(
-      root.characters
-    )
-      ?root.characters
-      :Array.isArray(
-          root.characterList
-        )
-        ?root.characterList
-        :[];
+    Array.isArray(root.characters)?root.characters:
+    Array.isArray(root.characterList)?root.characterList:
+    [];
 
+  if(!chars.length&&root.character)
+    chars=[root.character];
 
-  if(
-    !chars.length&&
-    root.character&&
-    typeof root.character===
-      'object'
-  )
-    chars=[
-      root.character
-    ];
+  const wanted=currentCharName();
 
+  let ch=
+    (wanted&&chars.find(x=>
+      clean(first(x,['name','displayName','characterName']))===wanted
+    ))||
+    chars[0]||
+    root;
 
-  const currentName=
-    currentCharacterName();
+  const name=clean(first(
+    ch,
+    ['name','displayName','characterName','title'],
+    first(root,['name','displayName','title'],'')
+  ));
 
-
-  let character=null;
-
-
-  if(currentName){
-
-    character=
-      chars.find(
-        x=>
-          clean(
-            first(
-              x,
-              [
-                'name',
-                'displayName',
-                'characterName'
-              ],
-              ''
-            )
-          )===
-          currentName
-      )||
-      null;
-  }
-
-
-  if(!character)
-    character=
-      chars[0]||
-      root;
-
-
-  const name=
-    clean(
-      first(
-        character,
-        [
-          'name',
-          'displayName',
-          'characterName',
-          'title'
-        ],
-        first(
-          root,
-          [
-            'name',
-            'displayName',
-            'title'
-          ],
-          ''
-        )
-      )
-    );
-
-
-  const description=
-    clean(
-      first(
-        character,
-        [
-          'description',
-          'longDescription',
-          'summary',
-          'prompt'
-        ],
-        first(
-          root,
-          [
-            'longDescription',
-            'description',
-            'summary',
-            'prompt'
-          ],
-          ''
-        )
-      )
-    );
-
+  const description=clean(first(
+    ch,
+    ['description','longDescription','summary','prompt'],
+    first(root,['longDescription','description','summary','prompt'],'')
+  ));
 
   return{
     name,
@@ -419,1383 +126,510 @@ function characterFromPlot(
   };
 }
 
-
-/* =========================================
-   Reading USER 캐시 선택
-========================================= */
-
-function roomSettings(
-  rid
-){
-
-  const map=
-    jget(
-      SETTINGS_KEY
-    );
-
-
-  return(
-    map[
-      'room:'+rid
-    ]||
-    {}
-  );
+function roomSettings(rid){
+  return jget(ROOMSET)?.['room:'+rid]||{};
 }
 
+function selectUser(entry,rid){
+  entry=entry&&typeof entry==='object'?entry:{};
 
-function selectUser(
-  entry,
-  rid
-){
+  const profiles=Array.isArray(entry.profiles)?entry.profiles:[];
+  const settings=roomSettings(rid);
 
-  entry=
-    entry&&
-    typeof entry==='object'
-      ?entry
-      :{};
+  const pinned=String(settings.userProfileKey||'');
+  const connected=String(entry.connectedKey||'');
 
-
-  const profiles=
-    Array.isArray(
-      entry.profiles
-    )
-      ?entry.profiles
-      :[];
-
-
-  const settings=
-    roomSettings(rid);
-
-
-  const pinnedKey=
-    String(
-      settings.userProfileKey||
-      ''
-    );
-
-
-  const connectedKey=
-    String(
-      entry.connectedKey||
-      ''
-    );
-
-
-  /*
-   * Reading에서 이 방에 직접 고정한 프로필.
-   */
-  let active=
-    pinnedKey
-      ?profiles.find(
-          x=>
-            x&&
-            String(x.key||'')===
-              pinnedKey
-        )
-      :null;
-
-
-  /*
-   * Zeta에서 현재 연결된 프로필.
-   */
-  if(!active&&connectedKey){
-
-    active=
-      profiles.find(
-        x=>
-          x&&
-          String(x.key||'')===
-            connectedKey
-      )||
-      null;
-  }
-
-
-  /*
-   * Reading이 방 설정에 snapshot을 남긴 경우.
-   */
-  if(
-    !active&&
-    settings
-      .userProfileSnapshot
-      ?.description
-  ){
-
-    active=
-      settings
-        .userProfileSnapshot;
-  }
-
-
-  if(
-    !active&&
-    profiles.length===1
-  )
-    active=
-      profiles[0];
-
-
-  return active||
+  let p=
+    (pinned&&profiles.find(x=>String(x?.key||'')===pinned))||
+    (connected&&profiles.find(x=>String(x?.key||'')===connected))||
     null;
+
+  if(!p&&settings.userProfileSnapshot?.description)
+    p=settings.userProfileSnapshot;
+
+  if(!p&&profiles.length===1)
+    p=profiles[0];
+
+  return p||null;
 }
-
-
-/* =========================================
-   캐시 읽기
-========================================= */
 
 function cacheState(){
+  const rid=roomId();
+  const pid=plotId(rid);
 
-  const rid=
-    roomId();
+  if(!rid||!pid)return null;
 
-  const pid=
-    plotId(rid);
-
-
-  if(
-    !rid||
-    !pid
-  )
-    return null;
-
-
-  const plotMap=
-    jget(
-      PLOT_KEY
-    );
-
-  const userMap=
-    jget(
-      USER_KEY
-    );
-
-
-  const pe=
-    plotMap[pid];
-
-  const ue=
-    userMap[
-      rid+'|'+pid
-    ];
-
-
-  const user=
-    selectUser(
-      ue,
-      rid
-    );
-
+  const pe=jget(PLOT)?.[pid];
+  const ue=jget(USER)?.[rid+'|'+pid];
 
   return{
     rid,
     pid,
     pe,
     ue,
-    user
+    user:selectUser(ue,rid)
   };
 }
 
+function fromCache(){
+  const c=cacheState();
 
-function fromCache(
-  requireFresh=false
-){
-
-  const c=
-    cacheState();
-
-
-  if(
-    !c||
-    !c.pe?.payload||
-    !c.user
-  )
+  if(!c?.pe?.payload||!c.user)
     return null;
-
-
-  const now=
-    Date.now();
-
-
-  const plotFresh=
-    !!(
-      Number(
-        c.pe.cachedAt
-      )&&
-      now-
-        Number(
-          c.pe.cachedAt
-        )<
-        PLOT_TTL
-    );
-
-
-  const userFresh=
-    !!(
-      Number(
-        c.ue?.cachedAt
-      )&&
-      now-
-        Number(
-          c.ue.cachedAt
-        )<
-        USER_TTL
-    );
-
-
-  if(
-    requireFresh&&
-    (
-      !plotFresh||
-      !userFresh
-    )
-  )
-    return null;
-
 
   return{
-
     roomId:c.rid,
-
     plotId:c.pid,
 
-    character:
-      characterFromPlot(
-        c.pe.payload
-      ),
+    character:charFromPlot(c.pe.payload),
 
     user:{
-      key:String(
-        c.user.key||
-        ''
-      ),
-      name:clean(
-        c.user.name
-      ),
-      description:
-        clean(
-          c.user.description
-        ),
-      source:String(
-        c.user.source||
-        c.user.type||
-        ''
-      )
+      key:String(c.user.key||''),
+      name:clean(c.user.name),
+      description:clean(c.user.description),
+      source:String(c.user.source||c.user.type||'')
     },
 
     cachedAt:{
-      plot:Number(
-        c.pe.cachedAt||
-        0
-      ),
-      user:Number(
-        c.ue?.cachedAt||
-        0
-      )
-    },
-
-    stale:
-      !plotFresh||
-      !userFresh
+      plot:Number(c.pe.cachedAt||0),
+      user:Number(c.ue?.cachedAt||0)
+    }
   };
 }
 
+async function waitUntil(fn,timeout=8000){
+  const start=Date.now();
 
-/* =========================================
-   ★ 핵심
-   Reading 자체에게 캐시 갱신을 요청
-========================================= */
-
-function readingShadow(){
-
-  const host=
-    D.getElementById(
-      READING_HOST
-    );
-
-
-  return host
-    ?.shadowRoot||
-    null;
-}
-
-
-async function waitForReading(
-  timeout=3500
-){
-
-  const started=
-    Date.now();
-
-
-  while(
-    Date.now()-started<
-    timeout
-  ){
-
-    const shadow=
-      readingShadow();
-
-
-    if(shadow)
-      return shadow;
-
-
-    await sleep(100);
-  }
-
-
-  return null;
-}
-
-
-async function refreshViaReading(){
-
-  const shadow=
-    await waitForReading();
-
-
-  if(!shadow)
-    return null;
-
-
-  const before=
-    cacheState();
-
-
-  const beforeUserAt=
-    Number(
-      before
-        ?.ue
-        ?.cachedAt||
-      0
-    );
-
-
-  /*
-   * Reading의 "현재 방 확인".
-   *
-   * 모달이 닫혀 있어도 click listener 자체는
-   * loadContext()를 실행한다.
-   */
-  const refresh=
-    shadow.querySelector(
-      '[data-refresh]'
-    );
-
-
-  if(refresh){
-
+  while(Date.now()-start<timeout){
     try{
-      refresh.click();
+      const v=fn();
+      if(v)return v;
     }catch(_){}
-  }
-
-
-  /*
-   * room/plot 판별 시간을 조금 준 뒤
-   * USER 프로필은 강제 새로고침.
-   */
-  await sleep(350);
-
-
-  const refreshUser=
-    shadow.querySelector(
-      '[data-refresh-user-profile]'
-    );
-
-
-  if(refreshUser){
-
-    try{
-      refreshUser.click();
-    }catch(_){}
-  }
-
-
-  const started=
-    Date.now();
-
-
-  while(
-    Date.now()-started<
-    7000
-  ){
-
-    const state=
-      cacheState();
-
-
-    const p=
-      fromCache(false);
-
-
-    if(p){
-
-      const userAt=
-        Number(
-          state
-            ?.ue
-            ?.cachedAt||
-          0
-        );
-
-
-      /*
-       * 새 user cache가 저장됐거나,
-       * 기존 cache라도 완전한 프로필이 있으면 사용.
-       */
-      if(
-        userAt>
-          beforeUserAt||
-        (
-          p.character
-            ?.description&&
-          p.user
-            ?.description
-        )
-      ){
-
-        return p;
-      }
-    }
-
 
     await sleep(120);
   }
 
-
-  /*
-   * Reading 갱신이 늦거나 실패했더라도
-   * 기존 유효 캐시가 있으면 사용.
-   */
-  return fromCache(
-    false
-  );
+  return null;
 }
 
+function shadow(){
+  return D.getElementById(HOST)?.shadowRoot||null;
+}
 
-/* =========================================
-   공용 get / prepare
-========================================= */
+async function ensureReading(){
+  let s=await waitUntil(()=>shadow(),1200);
+  if(s)return s;
 
-async function get(
-  options={}
-){
+  D.querySelectorAll('script[data-zeta-profile-reading]')
+    .forEach(x=>x.remove());
 
-  if(
-    !options.force
-  ){
+  await new Promise((resolve,reject)=>{
+    const x=D.createElement('script');
 
-    const cached=
-      fromCache(
-        true
-      );
+    x.dataset.zetaProfileReading='1';
+    x.src=RUN+'?cb='+Date.now();
 
+    x.onload=resolve;
 
-    if(cached){
+    x.onerror=()=>{
+      x.remove();
+      reject(Error('[PROFILE:Reading] run.js 로드 실패'));
+    };
 
-      current=
-        cached;
+    (D.head||D.documentElement).appendChild(x);
+  });
 
-      return cached;
+  s=await waitUntil(()=>shadow(),8000);
+
+  if(!s)
+    throw Error('[PROFILE:Reading] Reading UI 초기화 실패');
+
+  return s;
+}
+
+async function refreshViaReading(){
+  const rid=roomId();
+
+  if(!rid)
+    throw Error('[PROFILE:room] Zeta 대화방이 아닙니다.');
+
+  const sh=await ensureReading();
+
+  const refresh=sh.querySelector('[data-refresh]');
+
+  if(!refresh)
+    throw Error('[PROFILE:Reading] 현재 방 확인 버튼을 찾지 못했습니다.');
+
+  try{
+    refresh.click();
+  }catch(e){
+    throw Error('[PROFILE:Reading] 현재 방 확인 실행 실패 · '+(e?.message||e));
+  }
+
+  const pid=await waitUntil(()=>{
+    const id=plotId(rid);
+    if(!id)return null;
+
+    const p=jget(PLOT)?.[id];
+    return p?.payload?id:null;
+  },9000);
+
+  if(!pid){
+    const old=fromCache();
+    if(old?.character?.description)return old;
+
+    throw Error(
+      '[PROFILE:plot] Reading이 plot 캐시를 만들지 못했습니다.'
+    );
+  }
+
+  const userRefresh=sh.querySelector('[data-refresh-user-profile]');
+
+  if(!userRefresh)
+    throw Error('[PROFILE:Reading] 사용자 프로필 갱신 버튼을 찾지 못했습니다.');
+
+  try{
+    userRefresh.click();
+  }catch(e){
+    throw Error('[PROFILE:user] 사용자 프로필 갱신 실행 실패 · '+(e?.message||e));
+  }
+
+  const p=await waitUntil(()=>{
+    const x=fromCache();
+
+    if(
+      x?.character?.description&&
+      x?.user?.description
+    )
+      return x;
+
+    return null;
+  },10000);
+
+  if(p)return p;
+
+  const state=cacheState();
+
+  if(!state?.pe?.payload)
+    throw Error('[PROFILE:plot] 캐릭터 설정 캐시 없음');
+
+  if(!state?.user)
+    throw Error('[PROFILE:user] 현재 사용자 프로필 캐시 없음');
+
+  if(!clean(state.user.description))
+    throw Error('[PROFILE:user] 사용자 프로필 설명이 비어 있음');
+
+  throw Error('[PROFILE] 프로필 캐시 확인 실패');
+}
+
+async function get(opt={}){
+  if(!opt.force){
+    const c=fromCache();
+
+    if(
+      c?.character?.description&&
+      c?.user?.description
+    ){
+      current=c;
+      return c;
     }
   }
 
+  if(running)return running;
 
-  if(running)
-    return running;
-
-
-  running=
-    (async()=>{
-
-      let p=
-        await refreshViaReading();
-
-
-      if(!p)
-        p=
-          fromCache(
-            false
-          );
-
-
-      if(!p){
-
-        throw Error(
-          'Reading 프로필 캐시를 만들지 못했습니다. Reading이 현재 대화방에서 정상 로드되어 있는지 확인해주세요.'
-        );
-      }
-
-
-      if(
-        !p.character
-          ?.description
-      ){
-
-        throw Error(
-          '캐릭터 프로필을 Reading plot 캐시에서 찾지 못했습니다.'
-        );
-      }
-
-
-      if(
-        !p.user
-          ?.description
-      ){
-
-        throw Error(
-          '사용자 프로필을 Reading 캐시에서 찾지 못했습니다.'
-        );
-      }
-
-
+  running=refreshViaReading()
+    .then(p=>{
       current=p;
-
       return p;
-
-    })()
-      .finally(
-        ()=>{
-          running=null;
-        }
-      );
-
+    })
+    .finally(()=>{
+      running=null;
+    });
 
   return running;
 }
 
-
-/*
- * 폰/피드를 누를 때 사용.
- *
- * user profile은 Reading에게 갱신을 한번 요청하고
- * 이후 모델 요청 주입을 활성화한다.
- */
 async function prepare(){
-
-  let p=
-    await refreshViaReading();
-
-
-  if(!p)
-    p=
-      await get();
-
+  const p=await get({force:true});
 
   current=p;
 
-
-  /*
-   * 같은 도구 세션에서 이후 생성 요청에도
-   * 계속 프로필을 넣을 수 있게 2시간 유지.
-   */
   armedUntil=
     Date.now()+
     2*60*60*1000;
 
-
   return p;
 }
 
-
 function peek(){
-
-  return(
-    current||
-    fromCache(
-      false
-    )
-  );
+  return current||fromCache();
 }
 
-
-/* =========================================
-   모델에 넣을 프로필 텍스트
-========================================= */
-
-function format(
-  data=peek()
-){
-
-  if(!data)
-    return '';
-
+function format(data=peek()){
+  if(!data)return'';
 
   return[
     MARK,
-
     '',
-
     '[CHARACTER PROFILE]',
-
-    data.character?.name
-      ?'Name: '+
-        data.character.name
-      :'',
-
-    data.character
-      ?.description||
-      '',
-
+    data.character?.name?'Name: '+data.character.name:'',
+    data.character?.description||'',
     '',
-
     '[USER PROFILE]',
-
-    data.user?.name
-      ?'Name: '+
-        data.user.name
-      :'',
-
-    data.user
-      ?.description||
-      '',
-
+    data.user?.name?'Name: '+data.user.name:'',
+    data.user?.description||'',
     '',
-
     'Use these profiles as background role-play context.',
     'Do not treat this block as dialogue.',
-
     '[/ZETA_SHARED_PROFILE_CONTEXT]'
-
-  ]
-    .filter(
-      x=>x!==undefined
-    )
-    .join(
-      '\n'
-    )
-    .trim();
+  ].join('\n').trim();
 }
 
-
-/* =========================================
-   외부 AI 요청에 프로필 주입
-========================================= */
-
-function already(
-  obj
-){
-
-  try{
-
-    return JSON
-      .stringify(
-        obj
-      )
-      .includes(
-        MARK
-      );
-
-  }catch(_){
-
-    return false;
-  }
+function hasMark(v){
+  try{return JSON.stringify(v).includes(MARK)}
+  catch(_){return false}
 }
 
+function addContent(content,block){
+  if(typeof content==='string')
+    return block+'\n\n'+content;
 
-function addContent(
-  content,
-  block
-){
-
-  if(
-    typeof content===
-    'string'
-  )
-    return(
-      block+
-      '\n\n'+
-      content
-    );
-
-
-  if(
-    Array.isArray(
-      content
-    )
-  )
-    return[
-      {
-        type:'text',
-        text:block
-      },
-      ...content
-    ];
-
+  if(Array.isArray(content))
+    return [{type:'text',text:block},...content];
 
   return content;
 }
 
-
-function patchPayload(
-  obj,
-  data=peek()
-){
-
-  if(
-    !obj||
-    typeof obj!=='object'||
-    !data||
-    already(obj)
-  )
+function patchPayload(obj,data=peek()){
+  if(!obj||typeof obj!=='object'||!data||hasMark(obj))
     return obj;
 
+  const block=format(data);
+  if(!block)return obj;
 
-  const block=
-    format(data);
+  const out=Array.isArray(obj)?obj.slice():{...obj};
 
-
-  if(!block)
-    return obj;
-
-
-  const out=
-    Array.isArray(obj)
-      ?obj.slice()
-      :{
-          ...obj
-        };
-
-
-  /*
-   * Anthropic류 system 문자열
-   */
-  if(
-    typeof out.system===
-    'string'
-  ){
-
-    out.system=
-      block+
-      '\n\n'+
-      out.system;
-
+  if(typeof out.system==='string'){
+    out.system=block+'\n\n'+out.system;
     return out;
   }
 
+  if(Array.isArray(out.messages)){
+    const a=out.messages.map(x=>
+      x&&typeof x==='object'?{...x}:x
+    );
 
-  /*
-   * OpenAI / OpenRouter messages
-   */
-  if(
-    Array.isArray(
-      out.messages
-    )
-  ){
-
-    const messages=
-      out.messages.map(
-        m=>
-          m&&
-          typeof m==='object'
-            ?{...m}
-            :m
-      );
-
-
-    const i=
-      messages.findIndex(
-        m=>
-          m&&
-          /^(system|developer)$/i
-            .test(
-              String(
-                m.role||
-                ''
-              )
-            )
-      );
-
+    const i=a.findIndex(x=>
+      x&&/^(system|developer)$/i.test(String(x.role||''))
+    );
 
     if(i>=0){
-
-      messages[i]={
-        ...messages[i],
-
-        content:
-          addContent(
-            messages[i].content,
-            block
-          )
+      a[i]={
+        ...a[i],
+        content:addContent(a[i].content,block)
       };
-
     }else{
-
-      messages.unshift(
-        {
-          role:'system',
-          content:block
-        }
-      );
-    }
-
-
-    out.messages=
-      messages;
-
-
-    return out;
-  }
-
-
-  /*
-   * 단일 prompt
-   */
-  if(
-    typeof out.prompt===
-    'string'
-  ){
-
-    out.prompt=
-      block+
-      '\n\n'+
-      out.prompt;
-
-    return out;
-  }
-
-
-  /*
-   * Responses API류
-   */
-  if(
-    typeof out.input===
-    'string'
-  ){
-
-    out.input=
-      block+
-      '\n\n'+
-      out.input;
-
-    return out;
-  }
-
-
-  if(
-    Array.isArray(
-      out.input
-    )
-  ){
-
-    out.input=[
-      {
+      a.unshift({
         role:'system',
         content:block
-      },
-      ...out.input
-    ];
+      });
+    }
 
+    out.messages=a;
     return out;
   }
 
+  if(typeof out.prompt==='string'){
+    out.prompt=block+'\n\n'+out.prompt;
+    return out;
+  }
 
-  /*
-   * Gemini contents
-   */
-  if(
-    Array.isArray(
-      out.contents
-    )
-  ){
+  if(typeof out.input==='string'){
+    out.input=block+'\n\n'+out.input;
+    return out;
+  }
 
+  if(Array.isArray(out.input)){
+    out.input=[
+      {role:'system',content:block},
+      ...out.input
+    ];
+    return out;
+  }
+
+  if(Array.isArray(out.contents)){
     const old=
       out.system_instruction||
       out.systemInstruction;
 
-
     const value={
-
       parts:[
-        {
-          text:block
-        },
-
-        ...(
-          Array.isArray(
-            old?.parts
-          )
-            ?old.parts
-            :[]
-        )
+        {text:block},
+        ...(Array.isArray(old?.parts)?old.parts:[])
       ]
-
     };
 
-
-    if(
-      out.system_instruction!==
-      undefined
-    )
-      out.system_instruction=
-        value;
+    if(out.system_instruction!==undefined)
+      out.system_instruction=value;
     else
-      out.systemInstruction=
-        value;
-
+      out.systemInstruction=value;
 
     return out;
   }
 
-
   return out;
 }
 
+function shouldPatch(url,obj,stack=''){
+  if(Date.now()>armedUntil)return false;
+  if(!obj||typeof obj!=='object')return false;
 
-function shouldPatch(
-  url,
-  obj,
-  stack=''
-){
+  const u=String(url||'');
 
   if(
-    Date.now()>
-    armedUntil
+    /api\.zeta-ai\.io/i.test(u)||
+    /^\/v1\//i.test(u)
   )
     return false;
 
-
   if(
-    !obj||
-    typeof obj!=='object'
+    /zreading\.pages\.dev|reading\.js/i.test(String(stack))
   )
     return false;
-
-
-  const u=
-    String(
-      url||
-      ''
-    );
-
-
-  /*
-   * Zeta 자체 API에는 절대 넣지 않음.
-   */
-  if(
-    /api\.zeta-ai\.io/i
-      .test(u)||
-    /^\/v1\//i
-      .test(u)
-  )
-    return false;
-
-
-  /*
-   * Reading 자체 생성 요청에도 중복 삽입 금지.
-   */
-  if(
-    /zreading\.pages\.dev|reading\.js/i
-      .test(
-        String(stack||'')
-      )
-  )
-    return false;
-
 
   return !!(
     obj.model||
-    Array.isArray(
-      obj.messages
-    )||
-    typeof obj.prompt===
-      'string'||
-    typeof obj.input===
-      'string'||
-    Array.isArray(
-      obj.input
-    )||
-    Array.isArray(
-      obj.contents
-    )
+    Array.isArray(obj.messages)||
+    typeof obj.prompt==='string'||
+    typeof obj.input==='string'||
+    Array.isArray(obj.input)||
+    Array.isArray(obj.contents)
   );
 }
 
-
-async function patchBody(
-  url,
-  body,
-  stack
-){
-
-  if(
-    typeof body!==
-    'string'
-  )
-    return body;
-
-
-  let obj;
-
-
-  try{
-    obj=
-      JSON.parse(
-        body
-      );
-  }catch(_){
-    return body;
-  }
-
-
-  if(
-    !shouldPatch(
-      url,
-      obj,
-      stack
-    )
-  )
-    return body;
-
-
-  const data=
-    peek();
-
-
-  if(!data)
-    return body;
-
-
-  try{
-
-    return JSON.stringify(
-      patchPayload(
-        obj,
-        data
-      )
-    );
-
-  }catch(_){
-
-    return body;
-  }
-}
-
-
-/* =========================================
-   fetch hook
-========================================= */
-
-async function fetchHook(
-  input,
-  init
-){
-
-  const stack=
-    String(
-      new Error().stack||
-      ''
-    );
-
-
+async function fetchHook(input,init){
+  const stack=String(new Error().stack||'');
   const url=
-    typeof input===
-      'string'
+    typeof input==='string'
       ?input
-      :input?.url||
-       '';
-
+      :input?.url||'';
 
   try{
+    if(init&&typeof init.body==='string'){
+      let o;
 
-    if(
-      init&&
-      typeof init.body===
-        'string'
-    ){
+      try{o=JSON.parse(init.body)}catch(_){o=null}
 
-      const body=
-        await patchBody(
-          url,
-          init.body,
-          stack
-        );
-
-
-      if(
-        body!==
-        init.body
-      ){
-
+      if(shouldPatch(url,o,stack)){
         init={
           ...init,
-          body
+          body:JSON.stringify(
+            patchPayload(o)
+          )
         };
       }
 
-    }else if(
-      input instanceof Request
-    ){
-
+    }else if(input instanceof Request){
       const method=
-        String(
-          init?.method||
-          input.method||
-          'GET'
-        )
-          .toUpperCase();
+        String(init?.method||input.method||'GET').toUpperCase();
 
+      if(method!=='GET'&&method!=='HEAD'&&!(init&&init.body)){
+        const text=await input.clone().text();
+        let o;
 
-      if(
-        method!=='GET'&&
-        method!=='HEAD'&&
-        !(init&&init.body)
-      ){
+        try{o=JSON.parse(text)}catch(_){o=null}
 
-        const original=
-          await input
-            .clone()
-            .text();
-
-
-        const body=
-          await patchBody(
-            url,
-            original,
-            stack
+        if(shouldPatch(url,o,stack)){
+          input=new Request(
+            input,
+            {
+              ...(init||{}),
+              body:JSON.stringify(
+                patchPayload(o)
+              )
+            }
           );
-
-
-        if(
-          body!==
-          original
-        ){
-
-          input=
-            new Request(
-              input,
-              {
-                ...(init||{}),
-                body
-              }
-            );
         }
       }
     }
-
   }catch(e){
-
-    console.warn(
-      '[ZETA Profile fetch]',
-      e
-    );
+    console.warn('[ZETA Profile fetch]',e);
   }
 
-
-  return OF.call(
-    this,
-    input,
-    init
-  );
+  return OF.call(this,input,init);
 }
 
-
-/* =========================================
-   XHR hook
-========================================= */
-
-function xhrOpen(
-  method,
-  url
-){
-
-  this.__zetaProfileUrl=
-    String(
-      url||
-      ''
-    );
-
-
-  return OO.apply(
-    this,
-    arguments
-  );
+function xhrOpen(method,url){
+  this.__zetaProfileUrl=String(url||'');
+  return OO.apply(this,arguments);
 }
 
-
-function xhrSend(
-  body
-){
-
-  const url=
-    String(
-      this.__zetaProfileUrl||
-      ''
-    );
-
-
+function xhrSend(body){
   if(
-    typeof body===
-      'string'&&
-    Date.now()<
-      armedUntil
+    typeof body==='string'&&
+    Date.now()<armedUntil
   ){
-
     try{
-
-      const obj=
-        JSON.parse(
-          body
-        );
-
+      const o=JSON.parse(body);
 
       if(
         shouldPatch(
-          url,
-          obj,
+          this.__zetaProfileUrl,
+          o,
           'xhr'
         )
       ){
-
-        body=
-          JSON.stringify(
-            patchPayload(
-              obj,
-              peek()
-            )
-          );
+        body=JSON.stringify(
+          patchPayload(o)
+        );
       }
-
     }catch(_){}
   }
 
-
-  return OS.call(
-    this,
-    body
-  );
+  return OS.call(this,body);
 }
-
-
-/* =========================================
-   설치 / 해제
-========================================= */
-
-function install(){
-
-  W.fetch=
-    fetchHook;
-
-  X.open=
-    xhrOpen;
-
-  X.send=
-    xhrSend;
-}
-
 
 function destroy(){
+  if(W.fetch===fetchHook)W.fetch=OF;
+  if(X.open===xhrOpen)X.open=OO;
+  if(X.send===xhrSend)X.send=OS;
 
-  if(
-    W.fetch===
-    fetchHook
-  )
-    W.fetch=
-      OF;
-
-
-  if(
-    X.open===
-    xhrOpen
-  )
-    X.open=
-      OO;
-
-
-  if(
-    X.send===
-    xhrSend
-  )
-    X.send=
-      OS;
-
-
-  try{
-    delete W[K];
-  }catch(_){
-    W[K]=null;
-  }
+  try{delete W[K]}
+  catch(_){W[K]=null}
 }
 
-
-/* =========================================
-   확인용
-========================================= */
-
 async function test(){
+  const p=await prepare();
 
-  const p=
-    await prepare();
-
-
-  console.log(
-    '[ZETA PROFILE]',
-    p
-  );
-
+  console.log('[ZETA PROFILE]',p);
 
   alert(
     '프로필 준비 완료\n\n'+
-    'CHAR: '+
-    (
-      p.character
-        ?.name||
-      '-'
-    )+
-    '\nUSER: '+
-    (
-      p.user
-        ?.name||
-      '-'
-    )+
-    '\n\nv2.1'
+    'CHAR: '+(p.character?.name||'-')+'\n'+
+    'USER: '+(p.user?.name||'-')+'\n'+
+    'v2.2'
   );
-
 
   return p;
 }
 
+W.fetch=fetchHook;
+X.open=xhrOpen;
+X.send=xhrSend;
 
-/* =========================================
-   시작
-========================================= */
-
-install();
-
-
-current=
-  fromCache(
-    false
-  );
-
+current=fromCache();
 
 W[K]={
-
   get,
-
   prepare,
-
   peek,
-
   format,
-
   patchPayload,
-
   test,
-
   destroy,
-
-  version:'2.1'
-
+  version:'2.2'
 };
 
-
-console.log(
-  '[ZETA Profile] v2.1 ready',
-  current||
-  'waiting for Reading cache'
-);
+console.log('[ZETA Profile] v2.2 ready');
 
 })();
