@@ -1,21 +1,189 @@
 (()=>{'use strict';
 
-const ID='zeta-roleplay-formatter-v10';
-const POS_KEY='zetaFormatterPosition';
-const MODE_KEY='zetaFormatterRemoveNarrator';
+const K='__ZETA_NARRATOR_TOOL__',ID='__zeta_narrator_v11__';
+const POS='zetaFormatterPosition',MODE='zetaFormatterRemoveNarrator';
 
-document.querySelectorAll('[id^="zeta-roleplay-formatter-"]').forEach(e=>e.remove());
+try{window[K]?.destroy?.()}catch{}
+document.querySelectorAll('[id^="zeta-roleplay-formatter-"],#__zeta_narrator_v11__').forEach(e=>e.remove());
 
-let removeNarrator=localStorage.getItem(MODE_KEY)==='1';
-let busy=false;
+const ac=new AbortController(),sig=ac.signal;
+let removeNarrator=localStorage.getItem(MODE)==='1',busy=false;
 
-const visible=e=>{
-  if(!e)return false;
-  const r=e.getBoundingClientRect(),s=getComputedStyle(e);
-  return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';
-};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const vis=e=>{if(!e)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden'};
 
-function toast(msg,type='normal'){
+function waitFor(fn,ms=5000){
+  return new Promise((ok,no)=>{
+    const end=Date.now()+ms;
+    const tick=()=>{
+      let v=null;
+      try{v=fn()}catch{}
+      if(v)return ok(v);
+      if(Date.now()>end)return no(Error('편집 UI를 찾지 못했습니다.'));
+      setTimeout(tick,60);
+    };
+    tick();
+  });
+}
+
+function cleanItalics(text){
+  text=String(text??'')
+    .replace(/\\\*/g,'*')
+    .replace(/[\u00A0\u200B\u200C\u200D\u2060\uFEFF]/g,' ');
+
+  let old;
+  do{
+    old=text;
+    text=text.replace(/\*[ \t\r\n]+\*/g,' ');
+  }while(text!==old);
+
+  return text.replace(/[ \t\r\n]+/g,' ').trim();
+}
+
+/* 구형 @이름:/@: 형식도 지원하고,
+   새 UI에서 캐릭터명이 없어도 그냥 처리 */
+function formatText(input){
+  const src=String(input??'').replace(/\r\n?/g,'\n');
+  const lines=src.split('\n');
+
+  let charName=null,mode='plain',tagged=false;
+  const out=[];
+
+  for(const raw of lines){
+    const line=raw.trim();
+    if(!line)continue;
+
+    const narrator=line.match(/^@\s*:\s*(.*)$/);
+    if(narrator){
+      tagged=true;
+      mode='narrator';
+
+      if(!removeNarrator&&narrator[1].trim())
+        out.push(narrator[1].trim());
+
+      continue;
+    }
+
+    const character=line.match(/^@\s*([^:\n]+?)\s*:\s*(.*)$/);
+    if(character){
+      tagged=true;
+      mode='character';
+
+      if(!charName)charName=character[1].trim();
+      if(character[2].trim())out.push(character[2].trim());
+
+      continue;
+    }
+
+    if(mode==='narrator'){
+      if(!removeNarrator)out.push(line);
+    }else{
+      out.push(line);
+    }
+  }
+
+  /* 마커 자체가 없는 새 형식이면
+     캐릭터명 찾으려고 에러내지 않고 지문 합치기만 */
+  if(!tagged)return cleanItalics(src);
+
+  const content=cleanItalics(out.join(' '));
+
+  /* @캐릭터:가 실제로 있었을 때만 다시 붙임 */
+  if(charName)
+    return `@${charName}:${content?' '+content:''}`;
+
+  return content;
+}
+
+function setReactValue(el,value){
+  const proto=Object.getPrototypeOf(el);
+  const setter=
+    Object.getOwnPropertyDescriptor(proto,'value')?.set||
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')?.set;
+
+  if(!setter)throw Error('textarea 값을 변경할 수 없습니다.');
+
+  setter.call(el,value);
+
+  el.dispatchEvent(new InputEvent('input',{
+    bubbles:true,
+    inputType:'insertText',
+    data:null
+  }));
+
+  el.dispatchEvent(new Event('change',{bubbles:true}));
+}
+
+/* 최근 활성 Edit message */
+function getEdit(){
+  return [...document.querySelectorAll(
+    'button[aria-label="Edit message"]:not(:disabled)'
+  )].filter(vis).at(-1)||null;
+}
+
+function allEditors(){
+  return [...document.querySelectorAll('textarea[name="message"]')]
+    .filter(e=>!e.closest('#'+ID));
+}
+
+function allSaves(){
+  return [...document.querySelectorAll(
+    'button[aria-label="Save edit"]:not(:disabled)'
+  )].filter(vis);
+}
+
+/* Save edit 버튼과 같은 컨테이너의 textarea 탐색 */
+function editorNearSave(save){
+  let p=save?.parentElement;
+
+  for(let i=0;i<12&&p&&p!==document.body;i++,p=p.parentElement){
+    const found=[...p.querySelectorAll('textarea[name="message"]')]
+      .filter(e=>!e.closest('#'+ID)&&vis(e));
+
+    if(found.length)return found.at(-1);
+  }
+
+  return null;
+}
+
+/* 핵심:
+   Edit 누르기 전에는 없었던 textarea를 가장 먼저 선택 */
+function findEditor(before){
+  const current=allEditors();
+
+  const newlyCreated=current
+    .filter(e=>!before.has(e)&&vis(e))
+    .at(-1);
+
+  if(newlyCreated)return newlyCreated;
+
+  /* React가 기존 노드를 재사용했다면 Save edit 기준으로 찾음 */
+  const saves=allSaves();
+
+  for(let i=saves.length-1;i>=0;i--){
+    const e=editorNearSave(saves[i]);
+    if(e)return e;
+  }
+
+  return null;
+}
+
+/* 현재 수정창과 같은 영역의 Save edit 우선 */
+function findSave(editor){
+  let p=editor?.parentElement;
+
+  for(let i=0;i<12&&p&&p!==document.body;i++,p=p.parentElement){
+    const b=[...p.querySelectorAll(
+      'button[aria-label="Save edit"]:not(:disabled)'
+    )].filter(vis);
+
+    if(b.length)return b.at(-1);
+  }
+
+  return allSaves().at(-1)||null;
+}
+
+function toast(msg,bad=false){
   document.getElementById(ID+'-toast')?.remove();
 
   const t=document.createElement('div');
@@ -24,1064 +192,247 @@ function toast(msg,type='normal'){
 
   Object.assign(t.style,{
     position:'fixed',
+    left:'50%',
+    bottom:'80px',
+    transform:'translateX(-50%)',
     zIndex:'2147483647',
-    padding:'6px 9px',
-    borderRadius:'8px',
-    background:
-      type==='error'
-        ?'rgba(127,29,29,.97)'
-        :type==='ok'
-          ?'rgba(20,83,45,.97)'
-          :'rgba(24,24,27,.97)',
-    border:'1px solid rgba(255,255,255,.08)',
+    padding:'7px 10px',
+    borderRadius:'9px',
+    background:bad?'#7f1d1df5':'#18181bf5',
     color:'#fff',
-    font:'11px system-ui,sans-serif',
-    boxShadow:'0 4px 16px rgba(0,0,0,.28)',
-    pointerEvents:'none',
-    opacity:'0',
-    transform:'translateY(3px)',
-    transition:'opacity .12s ease,transform .12s ease'
+    font:'11px system-ui',
+    boxShadow:'0 5px 18px #0007',
+    pointerEvents:'none'
   });
 
   document.body.appendChild(t);
-
-  const b=wrap.getBoundingClientRect();
-
-  t.style.left=
-    Math.min(
-      innerWidth-t.offsetWidth-5,
-      Math.max(
-        5,
-        b.left+b.width/2-t.offsetWidth/2
-      )
-    )+'px';
-
-  t.style.top=
-    Math.max(
-      5,
-      b.top-t.offsetHeight-6
-    )+'px';
-
-  requestAnimationFrame(()=>{
-    t.style.opacity='1';
-    t.style.transform='translateY(0)';
-  });
-
-  setTimeout(()=>{
-    t.style.opacity='0';
-    t.style.transform='translateY(3px)';
-    setTimeout(()=>t.remove(),150);
-  },1300);
+  setTimeout(()=>t.remove(),1500);
 }
 
-
-/* *지문* *지문* → *지문 지문*
-   \*지문\* 도 일반 별표로 정리 */
-function cleanItalics(text){
-
-  text=String(text??'')
-    .replace(/\\\*/g,'*')
-    .replace(
-      /[\u00A0\u200B\u200C\u200D\u2060\uFEFF]/g,
-      ' '
-    );
-
-  let old;
-
-  do{
-    old=text;
-
-    text=text.replace(
-      /\*[ \t\r\n]+\*/g,
-      ' '
-    );
-
-  }while(text!==old);
-
-  return text
-    .replace(/[ \t\r\n]+/g,' ')
-    .trim();
-}
-
-
-/* @이름: / @: 블록 정리 */
-function formatText(input){
-
-  const lines=
-    String(input??'')
-      .replace(/\r\n?/g,'\n')
-      .split('\n');
-
-  let characterName=null;
-  let mode='none';
-
-  const parts=[];
-
-  for(const raw of lines){
-
-    const line=raw.trim();
-
-    if(!line)continue;
-
-
-    /* narrator */
-    const narrator=
-      line.match(
-        /^@\s*:\s*(.*)$/
-      );
-
-    if(narrator){
-
-      mode='narrator';
-
-      if(
-        !removeNarrator&&
-        narrator[1].trim()
-      ){
-        parts.push(
-          narrator[1].trim()
-        );
-      }
-
-      continue;
-    }
-
-
-    /* character */
-    const character=
-      line.match(
-        /^@\s*([^:\n]+?)\s*:\s*(.*)$/
-      );
-
-    if(character){
-
-      mode='character';
-
-      const name=
-        character[1].trim();
-
-      const text=
-        character[2].trim();
-
-
-      if(
-        !characterName&&
-        name
-      ){
-        characterName=name;
-      }
-
-
-      if(text){
-        parts.push(text);
-      }
-
-      continue;
-    }
-
-
-    if(mode==='narrator'){
-
-      if(!removeNarrator){
-        parts.push(line);
-      }
-
-    }else{
-
-      parts.push(line);
-    }
-  }
-
-
-  if(!characterName){
-
-    throw new Error(
-      '캐릭터명(@이름:)을 찾지 못했습니다.'
-    );
-  }
-
-
-  const content=
-    cleanItalics(
-      parts.join(' ')
-    );
-
-
-  return (
-    `@${characterName}:`+
-    (
-      content
-        ?' '+content
-        :''
-    )
-  );
-}
-
-
-/* React textarea 값 변경 */
-function setReactValue(el,value){
-
-  const setter=
-    Object
-      .getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        'value'
-      )
-      ?.set;
-
-
-  if(!setter){
-
-    throw new Error(
-      'textarea 값을 변경할 수 없습니다.'
-    );
-  }
-
-
-  setter.call(
-    el,
-    value
-  );
-
-
-  el.dispatchEvent(
-    new InputEvent(
-      'input',
-      {
-        bubbles:true,
-        inputType:'insertText',
-        data:null
-      }
-    )
-  );
-
-
-  el.dispatchEvent(
-    new Event(
-      'change',
-      {
-        bubbles:true
-      }
-    )
-  );
-}
-
-
-/* 새 UI: 활성화된 마지막 Edit message */
-function getEditButton(){
-
-  const all=[
-    ...document.querySelectorAll(
-      'button[aria-label="Edit message"]:not(:disabled)'
-    )
-  ];
-
-
-  return (
-    all.filter(visible).at(-1)||
-    all.at(-1)||
-    null
-  );
-}
-
-
-/* 새 UI textarea */
-function getEditor(){
-
-  const all=[
-    ...document.querySelectorAll(
-      'textarea[name="message"]'
-    )
-  ]
-  .filter(
-    e=>!e.closest('#'+ID)
-  );
-
-
-  return (
-    all.filter(visible).at(-1)||
-    null
-  );
-}
-
-
-/* 새 UI 저장 버튼 */
-function getSaveButton(){
-
-  const all=[
-    ...document.querySelectorAll(
-      'button[aria-label="Save edit"]:not(:disabled)'
-    )
-  ];
-
-
-  return (
-    all.filter(visible).at(-1)||
-    all.at(-1)||
-    null
-  );
-}
-
-
-function waitFor(fn,timeout=5000){
-
-  return new Promise(
-    (resolve,reject)=>{
-
-      const end=
-        Date.now()+timeout;
-
-
-      const tick=()=>{
-
-        let value=null;
-
-
-        try{
-          value=fn();
-        }catch(_){}
-
-
-        if(value){
-
-          resolve(value);
-
-          return;
-        }
-
-
-        if(
-          Date.now()>end
-        ){
-
-          reject(
-            new Error(
-              '편집 UI를 찾지 못했습니다.'
-            )
-          );
-
-          return;
-        }
-
-
-        setTimeout(
-          tick,
-          60
-        );
-      };
-
-
-      tick();
-    }
-  );
-}
-
-
-/* 실행 */
 async function run(){
-
   if(busy)return;
 
-
-  const edit=
-    getEditButton();
-
+  const edit=getEdit();
 
   if(!edit){
-
-    toast(
-      '활성화된 수정 버튼을 찾지 못했습니다.',
-      'error'
-    );
-
+    toast('활성화된 수정 버튼을 찾지 못했습니다.',true);
     return;
   }
 
-
   busy=true;
-
-  runBtn.style.opacity='.45';
-  runBtn.style.pointerEvents='none';
-
-  toggleBtn.style.pointerEvents='none';
-
+  runBtn.style.opacity='.4';
 
   try{
+    /* ★ 현재 존재하는 일반 채팅 textarea 기억 */
+    const before=new Set(allEditors());
 
     edit.click();
 
+    /* ★ 수정 클릭 뒤 생성된 진짜 편집창 찾기 */
+    const editor=await waitFor(()=>findEditor(before));
 
-    const textarea=
-      await waitFor(
-        getEditor
-      );
+    /* React가 value를 채우는 한 박자 대기 */
+    await sleep(100);
 
+    const original=editor.value;
 
-    const formatted=
-      formatText(
-        textarea.value
-      );
+    console.log('[ZETA narrator] editor found:',editor);
+    console.log('[ZETA narrator] original:',original);
 
+    const formatted=formatText(original);
 
-    setReactValue(
-      textarea,
-      formatted
-    );
+    console.log('[ZETA narrator] formatted:',formatted);
 
+    setReactValue(editor,formatted);
 
-    const save=
-      await waitFor(
-        getSaveButton
-      );
+    /* input 후 Save edit 활성화 기다림 */
+    const save=await waitFor(()=>findSave(editor));
 
+    console.log('[ZETA narrator] save found:',save);
 
+    await sleep(80);
     save.click();
 
+    toast(removeNarrator?'나레이터 삭제 완료':'지문 정리 완료');
 
-    toast(
-      removeNarrator
-        ?'나레이터 삭제 + 저장 완료'
-        :'전체 합치기 + 저장 완료',
-      'ok'
-    );
-
-
-  }catch(error){
-
-    console.error(
-      '[ZETA narrator]',
-      error
-    );
-
-
-    toast(
-      error?.message||
-      '변환 실패',
-      'error'
-    );
-
+  }catch(e){
+    console.error('[ZETA narrator]',e);
+    toast(e?.message||'변환 실패',true);
 
   }finally{
-
     busy=false;
-
     runBtn.style.opacity='1';
-    runBtn.style.pointerEvents='auto';
-
-    toggleBtn.style.pointerEvents='auto';
   }
 }
 
 
-/* UI */
-const wrap=
-  document.createElement(
-    'div'
-  );
+/* ---------- UI ---------- */
 
+const wrap=document.createElement('div');
 wrap.id=ID;
 
-Object.assign(
-  wrap.style,
-  {
-    position:'fixed',
-    display:'flex',
-    alignItems:'center',
+Object.assign(wrap.style,{
+  position:'fixed',
+  display:'flex',
+  height:'32px',
+  zIndex:'2147483647',
+  border:'1px solid rgba(255,255,255,.10)',
+  borderRadius:'999px',
+  background:'rgba(25,25,29,.9)',
+  backdropFilter:'blur(10px)',
+  boxShadow:'0 4px 14px #0005',
+  overflow:'hidden',
+  touchAction:'none',
+  userSelect:'none'
+});
 
-    height:'32px',
-
-    border:
-      '1px solid rgba(255,255,255,.10)',
-
-    borderRadius:'999px',
-
-    background:
-      'rgba(25,25,29,.88)',
-
-    backdropFilter:
-      'blur(10px)',
-
-    WebkitBackdropFilter:
-      'blur(10px)',
-
-    boxShadow:
-      '0 4px 14px rgba(0,0,0,.22)',
-
-    overflow:'hidden',
-
-    zIndex:'2147483647',
-
-    touchAction:'none',
-
-    userSelect:'none',
-
-    WebkitUserSelect:'none'
-  }
-);
-
-
-const runBtn=
-  document.createElement(
-    'button'
-  );
-
+const runBtn=document.createElement('button');
 runBtn.type='button';
+runBtn.innerHTML='✦';
 
-runBtn.title=
-  '탭: 실행 / 드래그: 이동';
+Object.assign(runBtn.style,{
+  width:'34px',
+  height:'32px',
+  padding:'0',
+  border:'0',
+  borderRight:'1px solid rgba(255,255,255,.08)',
+  background:'transparent',
+  color:'#fff',
+  font:'16px system-ui',
+  touchAction:'none'
+});
 
-runBtn.setAttribute(
-  'aria-label',
-  'Zeta RP 정리 실행'
-);
+const toggle=document.createElement('button');
+toggle.type='button';
 
-runBtn.innerHTML=
-  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">'+
-  '<path d="M12 2l1.2 4.2L17.5 7.5l-4.3 1.3L12 13l-1.2-4.2-4.3-1.3 4.3-1.3L12 2Z" fill="currentColor"/>'+
-  '<path d="M18 13.5l.65 1.85L20.5 16l-1.85.65L18 18.5l-.65-1.85L15.5 16l1.85-.65L18 13.5Z" fill="currentColor"/>'+
-  '</svg>';
+Object.assign(toggle.style,{
+  width:'34px',
+  height:'32px',
+  padding:'0',
+  border:'0',
+  font:'700 10px system-ui',
+  touchAction:'manipulation'
+});
 
-Object.assign(
-  runBtn.style,
-  {
-    width:'34px',
-    height:'32px',
-
-    border:'0',
-
-    borderRight:
-      '1px solid rgba(255,255,255,.08)',
-
-    background:'transparent',
-
-    color:
-      'rgba(255,255,255,.9)',
-
-    display:'flex',
-
-    alignItems:'center',
-
-    justifyContent:'center',
-
-    cursor:'grab',
-
-    padding:'0',
-
-    touchAction:'none',
-
-    WebkitTapHighlightColor:
-      'transparent'
-  }
-);
-
-
-const toggleBtn=
-  document.createElement(
-    'button'
-  );
-
-toggleBtn.type='button';
-
-Object.assign(
-  toggleBtn.style,
-  {
-    width:'34px',
-    height:'32px',
-
-    border:'0',
-
-    display:'flex',
-
-    alignItems:'center',
-
-    justifyContent:'center',
-
-    cursor:'pointer',
-
-    padding:'0',
-
-    touchAction:'manipulation',
-
-    transition:
-      'background .15s ease,color .15s ease,box-shadow .15s ease'
-  }
-);
-
-
-const toggleLabel=
-  document.createElement(
-    'span'
-  );
-
-Object.assign(
-  toggleLabel.style,
-  {
-    font:
-      '700 10px/1 system-ui,sans-serif',
-
-    letterSpacing:'-.2px',
-
-    pointerEvents:'none'
-  }
-);
-
-toggleBtn.appendChild(
-  toggleLabel
-);
-
-
-function updateToggle(){
-
-  if(removeNarrator){
-
-    toggleLabel.textContent='N×';
-
-    toggleBtn.title=
-      '나레이터 삭제 ON';
-
-
-    Object.assign(
-      toggleBtn.style,
-      {
-        background:
-          'linear-gradient(135deg,#ef4444,#dc2626)',
-
-        color:'#fff',
-
-        boxShadow:
-          'inset 0 0 0 1px rgba(255,255,255,.10),0 0 10px rgba(239,68,68,.28)'
-      }
-    );
-
-  }else{
-
-    toggleLabel.textContent='N';
-
-    toggleBtn.title=
-      '나레이터 삭제 OFF';
-
-
-    Object.assign(
-      toggleBtn.style,
-      {
-        background:'transparent',
-
-        color:
-          'rgba(255,255,255,.48)',
-
-        boxShadow:'none'
-      }
-    );
-  }
+function paint(){
+  toggle.textContent=removeNarrator?'N×':'N';
+  toggle.style.background=removeNarrator?'#dc2626':'transparent';
+  toggle.style.color=removeNarrator?'#fff':'#ffffff88';
+  toggle.title=removeNarrator?'나레이터 삭제 ON':'나레이터 삭제 OFF';
 }
 
+paint();
 
-updateToggle();
+toggle.onclick=e=>{
+  e.stopPropagation();
+  removeNarrator=!removeNarrator;
+  localStorage.setItem(MODE,removeNarrator?'1':'0');
+  paint();
+  toast(removeNarrator?'나레이터 삭제 ON':'나레이터 삭제 OFF');
+};
 
-
-toggleBtn.addEventListener(
-  'click',
-  event=>{
-
-    event.stopPropagation();
-
-
-    removeNarrator=
-      !removeNarrator;
-
-
-    localStorage.setItem(
-      MODE_KEY,
-      removeNarrator
-        ?'1'
-        :'0'
-    );
-
-
-    updateToggle();
-
-
-    toast(
-      removeNarrator
-        ?'나레이터 삭제 ON'
-        :'나레이터 삭제 OFF',
-
-      removeNarrator
-        ?'ok'
-        :'normal'
-    );
-  }
-);
-
-
-wrap.append(
-  runBtn,
-  toggleBtn
-);
+wrap.append(runBtn,toggle);
+document.body.appendChild(wrap);
 
 
 /* 위치 복원 */
 try{
+  const p=JSON.parse(localStorage.getItem(POS)||'null');
 
-  const pos=
-    JSON.parse(
-      localStorage.getItem(
-        POS_KEY
-      )||
-      'null'
-    );
-
-
-  if(
-    pos&&
-    Number.isFinite(pos.x)&&
-    Number.isFinite(pos.y)
-  ){
-
-    wrap.style.left=
-      Math.max(
-        4,
-        Math.min(
-          innerWidth-72,
-          pos.x
-        )
-      )+'px';
-
-
-    wrap.style.top=
-      Math.max(
-        4,
-        Math.min(
-          innerHeight-36,
-          pos.y
-        )
-      )+'px';
-
+  if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y)){
+    wrap.style.left=Math.max(4,Math.min(innerWidth-72,p.x))+'px';
+    wrap.style.top=Math.max(4,Math.min(innerHeight-36,p.y))+'px';
   }else{
-
     wrap.style.right='12px';
     wrap.style.bottom='12px';
   }
-
-}catch(_){
-
+}catch{
   wrap.style.right='12px';
   wrap.style.bottom='12px';
 }
 
 
-document.body.appendChild(
-  wrap
-);
+/* 드래그 + 탭 실행 */
+let drag=false,moved=false,pid=null,sx=0,sy=0,ox=0,oy=0;
 
-
-/* 드래그 */
-let dragging=false;
-let moved=false;
-let pid=null;
-
-let startX=0;
-let startY=0;
-
-let originX=0;
-let originY=0;
-
-
-function dragStart(event){
-
+runBtn.addEventListener('pointerdown',e=>{
   if(busy)return;
 
+  const r=wrap.getBoundingClientRect();
 
-  dragging=true;
+  drag=true;
   moved=false;
+  pid=e.pointerId;
+  sx=e.clientX;
+  sy=e.clientY;
+  ox=r.left;
+  oy=r.top;
 
-  pid=event.pointerId;
-
-
-  const rect=
-    wrap.getBoundingClientRect();
-
-
-  startX=event.clientX;
-  startY=event.clientY;
-
-  originX=rect.left;
-  originY=rect.top;
-
-
-  wrap.style.left=
-    rect.left+'px';
-
-  wrap.style.top=
-    rect.top+'px';
-
+  wrap.style.left=r.left+'px';
+  wrap.style.top=r.top+'px';
   wrap.style.right='auto';
   wrap.style.bottom='auto';
 
+  try{runBtn.setPointerCapture(pid)}catch{}
+  e.preventDefault();
+},{signal:sig,passive:false});
 
-  runBtn.style.cursor=
-    'grabbing';
+document.addEventListener('pointermove',e=>{
+  if(!drag||e.pointerId!==pid)return;
 
+  const dx=e.clientX-sx,dy=e.clientY-sy;
 
-  try{
-
-    runBtn.setPointerCapture(
-      pid
-    );
-
-  }catch(_){}
-
-
-  event.preventDefault();
-  event.stopPropagation();
-}
-
-
-function dragMove(event){
-
-  if(
-    !dragging||
-    event.pointerId!==pid
-  ){
-    return;
-  }
-
-
-  const dx=
-    event.clientX-startX;
-
-
-  const dy=
-    event.clientY-startY;
-
-
-  if(
-    !moved&&
-    Math.hypot(
-      dx,
-      dy
-    )>=5
-  ){
-    moved=true;
-  }
-
-
+  if(Math.hypot(dx,dy)>=5)moved=true;
   if(!moved)return;
 
+  const x=Math.max(4,Math.min(innerWidth-wrap.offsetWidth-4,ox+dx));
+  const y=Math.max(4,Math.min(innerHeight-wrap.offsetHeight-4,oy+dy));
 
-  const x=
-    Math.max(
-      4,
-      Math.min(
-        innerWidth-
-        wrap.offsetWidth-
-        4,
+  wrap.style.left=x+'px';
+  wrap.style.top=y+'px';
 
-        originX+
-        dx
-      )
-    );
+  e.preventDefault();
+},{signal:sig,capture:true,passive:false});
 
+document.addEventListener('pointerup',e=>{
+  if(!drag||e.pointerId!==pid)return;
 
-  const y=
-    Math.max(
-      4,
-      Math.min(
-        innerHeight-
-        wrap.offsetHeight-
-        4,
+  drag=false;
 
-        originY+
-        dy
-      )
-    );
+  try{runBtn.releasePointerCapture(pid)}catch{}
 
+  const r=wrap.getBoundingClientRect();
 
-  wrap.style.left=
-    x+'px';
+  localStorage.setItem(POS,JSON.stringify({
+    x:r.left,
+    y:r.top
+  }));
 
-
-  wrap.style.top=
-    y+'px';
-
-
-  event.preventDefault();
-  event.stopPropagation();
-}
-
-
-function dragEnd(event){
-
-  if(
-    !dragging||
-    (
-      event.pointerId!=null&&
-      event.pointerId!==pid
-    )
-  ){
-    return;
-  }
-
-
-  dragging=false;
-
-  runBtn.style.cursor='grab';
-
-
-  try{
-
-    runBtn.releasePointerCapture(
-      pid
-    );
-
-  }catch(_){}
-
-
-  const rect=
-    wrap.getBoundingClientRect();
-
-
-  try{
-
-    localStorage.setItem(
-
-      POS_KEY,
-
-      JSON.stringify({
-        x:rect.left,
-        y:rect.top
-      })
-    );
-
-  }catch(_){}
-
-
-  const shouldRun=
-    !moved;
-
-
+  const tap=!moved;
   moved=false;
   pid=null;
 
+  if(tap)run();
 
-  if(shouldRun){
-
-    run();
-  }
+  e.preventDefault();
+},{signal:sig,capture:true,passive:false});
 
 
-  if(event){
+function destroy(){
+  ac.abort();
+  wrap.remove();
+  document.getElementById(ID+'-toast')?.remove();
 
-    event.preventDefault();
-    event.stopPropagation();
-  }
+  try{delete window[K]}
+  catch{window[K]=null}
 }
 
+window[K]={
+  run,
+  destroy,
+  version:'11.0'
+};
 
-runBtn.addEventListener(
-  'pointerdown',
-  dragStart,
-  {
-    passive:false
-  }
-);
-
-
-document.addEventListener(
-  'pointermove',
-  dragMove,
-  {
-    capture:true,
-    passive:false
-  }
-);
-
-
-document.addEventListener(
-  'pointerup',
-  dragEnd,
-  {
-    capture:true,
-    passive:false
-  }
-);
-
-
-document.addEventListener(
-  'pointercancel',
-  dragEnd,
-  {
-    capture:true,
-    passive:false
-  }
-);
-
-
-/* 화면 회전/크기 변경 */
-window.addEventListener(
-  'resize',
-  ()=>{
-
-    const rect=
-      wrap.getBoundingClientRect();
-
-
-    const x=
-      Math.max(
-        4,
-        Math.min(
-          innerWidth-
-          wrap.offsetWidth-
-          4,
-          rect.left
-        )
-      );
-
-
-    const y=
-      Math.max(
-        4,
-        Math.min(
-          innerHeight-
-          wrap.offsetHeight-
-          4,
-          rect.top
-        )
-      );
-
-
-    wrap.style.left=
-      x+'px';
-
-
-    wrap.style.top=
-      y+'px';
-
-
-    wrap.style.right='auto';
-    wrap.style.bottom='auto';
-
-
-    try{
-
-      localStorage.setItem(
-        POS_KEY,
-        JSON.stringify({
-          x,
-          y
-        })
-      );
-
-    }catch(_){}
-  }
-);
-
-
-toast(
-  removeNarrator
-    ?'나레이터 삭제 ON'
-    :'나레이터 삭제 OFF',
-  'ok'
-);
+toast('나레삭제 v11 준비됨');
 
 })();
