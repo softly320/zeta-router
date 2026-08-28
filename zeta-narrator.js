@@ -435,159 +435,63 @@ window[K]={
 
 toast('나레삭제 v11 준비됨');
 
-/* ===== 나레삭제 UI : DARK + VIVID ===== */
+/* ===== 나레삭제 UI 미감 패치 ===== */
 (()=>{
-  const S='__zeta_narrator_pretty__';
-  document.getElementById(S)?.remove();
+  const UI=document.createElement('style');
+  UI.id='__zeta_narrator_pretty__';
+  document.getElementById(UI.id)?.remove();
 
-  const st=document.createElement('style');
-  st.id=S;
-
-  st.textContent=`
+  UI.textContent=`
 #__zeta_narrator_v11__{
-  height:38px !important;
-  border-radius:19px !important;
-
-  border:1px solid rgba(255,255,255,.10) !important;
-
-  background:
-    linear-gradient(
-      180deg,
-      rgba(24,27,34,.97),
-      rgba(13,15,20,.97)
-    ) !important;
-
+  height:36px !important;
+  border-radius:18px !important;
+  border:1px solid rgba(255,255,255,.12) !important;
+  background:rgba(28,30,36,.88) !important;
   box-shadow:
-    0 7px 22px rgba(0,0,0,.38),
-    inset 0 1px 0 rgba(255,255,255,.045) !important;
-
+    0 5px 18px rgba(0,0,0,.28),
+    inset 0 1px 0 rgba(255,255,255,.05) !important;
   backdrop-filter:blur(14px) saturate(140%) !important;
   -webkit-backdrop-filter:blur(14px) saturate(140%) !important;
-
   overflow:hidden !important;
 }
 
-
-/* 공통 버튼 */
 #__zeta_narrator_v11__ > button{
-  position:relative !important;
-
-  width:40px !important;
-  min-width:40px !important;
-  height:38px !important;
-
-  padding:0 !important;
-  margin:0 !important;
-
+  width:38px !important;
+  height:36px !important;
+  min-width:38px !important;
   border:0 !important;
   border-radius:0 !important;
-
   display:flex !important;
   align-items:center !important;
   justify-content:center !important;
-
-  transition:
-    background .15s ease,
-    color .15s ease,
-    box-shadow .15s ease,
-    transform .1s ease !important;
-
-  -webkit-tap-highlight-color:transparent !important;
+  padding:0 !important;
+  margin:0 !important;
+  line-height:1 !important;
 }
 
-
-/* ✦ 실행 */
 #__zeta_narrator_v11__ > button:first-child{
-  background:
-    rgba(94,231,255,.035) !important;
-
-  border-right:
-    1px solid rgba(255,255,255,.07) !important;
-
-  color:#5EE7FF !important;
-
-  font-size:17px !important;
-  font-weight:600 !important;
-
-  text-shadow:
-    0 0 9px rgba(94,231,255,.55) !important;
+  background:transparent !important;
+  border-right:1px solid rgba(255,255,255,.07) !important;
+  font-size:16px !important;
+  color:rgba(255,255,255,.92) !important;
+  text-shadow:0 0 8px rgba(255,255,255,.18) !important;
 }
 
-
-/* 실행 버튼 눌림 */
 #__zeta_narrator_v11__ > button:first-child:active{
-  background:
-    rgba(94,231,255,.15) !important;
-
-  box-shadow:
-    inset 0 0 14px rgba(94,231,255,.10) !important;
-
-  transform:scale(.93) !important;
+  background:rgba(255,255,255,.08) !important;
 }
 
-
-/* N 기본 */
 #__zeta_narrator_v11__ > button:last-child{
-  background:
-    rgba(255,255,255,.025) !important;
-
-  color:#8B93A7 !important;
-
-  font:
-    800 10px/1 system-ui,sans-serif !important;
-
-  letter-spacing:-.2px !important;
-
-  text-shadow:none !important;
+  font:800 10px/1 system-ui,sans-serif !important;
+  letter-spacing:-.25px !important;
 }
 
-
-/* N OFF 눌림 */
 #__zeta_narrator_v11__ > button:last-child:active{
-  background:
-    rgba(255,255,255,.08) !important;
-
-  transform:scale(.93) !important;
-}
-
-
-/* N× 활성 상태
-   inline style로 #dc2626이 들어오므로
-   style 속성을 이용해 잡음 */
-#__zeta_narrator_v11__ > button:last-child[style*="dc2626"]{
-  background:
-    linear-gradient(
-      135deg,
-      #FF3D6E,
-      #F0005E
-    ) !important;
-
-  color:#fff !important;
-
-  box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,.14),
-    0 0 14px rgba(255,61,110,.38) !important;
-
-  text-shadow:
-    0 1px 2px rgba(0,0,0,.24) !important;
-}
-
-
-/* 활성 N× 눌림 */
-#__zeta_narrator_v11__ > button:last-child[style*="dc2626"]:active{
-  background:
-    linear-gradient(
-      135deg,
-      #FF567F,
-      #FF146D
-    ) !important;
-
-  transform:scale(.93) !important;
+  filter:brightness(1.12);
 }
 `;
 
-  (document.head||document.documentElement)
-    .appendChild(st);
+  (document.head||document.documentElement).appendChild(UI);
 })();
 
       
