@@ -1737,30 +1737,27 @@ console.log(
 })();
 
 /* =========================================
-   ZETA PROFILE ROOM BOOTSTRAP v1.0
-   처음 들어간 방도 room → plot 자동 연결
+   ZETA PROFILE UNIVERSAL ROOM v2.5
+   새 방에서도 room → plot 자동 해결
+   Reading API 인증에 의존하지 않음
 ========================================= */
 
 (()=>{'use strict';
 
 const W=window;
 const D=document;
-
 const P=W.__ZETA_PROFILE__;
 
 if(!P){
-  console.warn(
-    '[ZETA Profile Room Bootstrap] profile module 없음'
-  );
+  console.warn('[ZETA Profile Universal Room] profile module 없음');
   return;
 }
 
-if(P.__roomBootstrapInstalled){
+if(P.__universalRoomInstalled){
   return;
 }
 
-P.__roomBootstrapInstalled=true;
-
+P.__universalRoomInstalled=true;
 
 const ROOM_KEY=
   'ZETAKIT_READING_ROOM_CONTEXT_V1';
@@ -1768,60 +1765,64 @@ const ROOM_KEY=
 const PLOT_KEY=
   'ZETAKIT_READING_PLOT_CACHE_V1';
 
-const READING_HOST=
-  'zk-reading-host';
+const FRAME_ID=
+  '__zeta_profile_plot_reader__';
 
-const READING_RUN=
-  'https://zreading.pages.dev/run.js';
+const baseGet=
+  typeof P.get==='function'
+    ?P.get.bind(P)
+    :null;
 
+const basePrepare=
+  typeof P.prepare==='function'
+    ?P.prepare.bind(P)
+    :null;
+
+if(!baseGet||!basePrepare){
+  console.warn(
+    '[ZETA Profile Universal Room] 기존 get/prepare 없음'
+  );
+  return;
+}
 
 const sleep=ms=>
-  new Promise(
-    r=>setTimeout(r,ms)
-  );
+  new Promise(r=>setTimeout(r,ms));
 
 
-function readJson(
-  key,
-  fallback={}
-){
+function clean(v){
+  return String(v??'')
+    .replace(/[\u200b\u2060\ufeff]/g,'')
+    .replace(/\r/g,'')
+    .replace(/[ \t]+\n/g,'\n')
+    .replace(/\n{3,}/g,'\n\n')
+    .trim();
+}
 
+
+function readJson(key,fallback={}){
   try{
-
     const raw=
-      localStorage.getItem(
-        key
-      );
+      localStorage.getItem(key);
 
     if(raw==null)
       return fallback;
 
-
-    const value=
-      JSON.parse(raw);
-
+    const v=JSON.parse(raw);
 
     return(
-      value&&
-      typeof value==='object'
-        ?value
+      v&&typeof v==='object'
+        ?v
         :fallback
     );
 
   }catch(_){
-
     return fallback;
   }
 }
 
 
-function writeJson(
-  key,
-  value
-){
-
+function writeJson(key,value){
   try{
-
     localStorage.setItem(
       key,
       JSON.stringify(value)
@@ -1830,147 +1831,89 @@ function writeJson(
     return true;
 
   }catch(_){
-
     return false;
   }
 }
 
 
-/* =========================================
-   현재 roomId
-========================================= */
-
 function currentRoomId(){
-
-  const match=
-    String(
-      location.pathname||
-      ''
-    )
+  const m=
+    String(location.pathname||'')
       .match(
         /\/rooms\/([^/?#]+)/i
       );
 
-
-  if(!match)
+  if(!m)
     return '';
 
-
   try{
-
-    return decodeURIComponent(
-      match[1]
-    );
-
+    return decodeURIComponent(m[1]);
   }catch(_){
+    return m[1];
+  }
+}
 
-    return match[1];
+
+function decodeSafe(v){
+  try{
+    return decodeURIComponent(
+      String(v||'')
+    );
+  }catch(_){
+    return String(v||'');
   }
 }
 
 
 /* =========================================
-   저장된 plotId 확인
-
-   Reading 최신 캐시
-   + 예전 Memory/Persona 캐시까지 전부 확인
+   기존 room → plot 캐시
 ========================================= */
 
-function savedPlotId(
-  rid
-){
+function cachedPlotId(rid){
 
-  rid=
-    String(
-      rid||
-      ''
-    );
-
+  rid=String(rid||'');
 
   if(!rid)
     return '';
 
-
-  const roomMap=
-    readJson(
-      ROOM_KEY
-    );
-
+  const map=
+    readJson(ROOM_KEY);
 
   const direct=
     String(
-      roomMap
-        ?.[rid]
-        ?.plotId||
+      map?.[rid]?.plotId||
       ''
     );
-
 
   if(direct)
     return direct;
 
-
   try{
-
     return String(
-
       localStorage.getItem(
-        'ZETAKIT_MEMORY_PROFILE_PLOTID_'+
-        rid
+        'ZETAKIT_MEMORY_PROFILE_PLOTID_'+rid
       )||
-
       localStorage.getItem(
-        'zeta-persona-editor-plotid-'+
-        rid
+        'zeta-persona-editor-plotid-'+rid
       )||
-
       ''
-
     );
-
   }catch(_){
-
     return '';
   }
 }
 
 
-/* =========================================
-   plotId 저장
+function rememberPlot(rid,pid){
 
-   Reading이 쓰는 형식과 동일하게 맞춤
-========================================= */
+  rid=String(rid||'');
+  pid=String(pid||'');
 
-function rememberPlot(
-  rid,
-  pid
-){
-
-  rid=
-    String(
-      rid||
-      ''
-    );
-
-  pid=
-    String(
-      pid||
-      ''
-    );
-
-
-  if(
-    !rid||
-    !pid
-  )
+  if(!rid||!pid)
     return false;
 
-
   const map=
-    readJson(
-      ROOM_KEY
-    );
-
+    readJson(ROOM_KEY);
 
   map[rid]={
     ...(
@@ -1979,111 +1922,377 @@ function rememberPlot(
         ?map[rid]
         :{}
     ),
-
     plotId:pid
   };
-
 
   writeJson(
     ROOM_KEY,
     map
   );
 
-
   try{
-
     localStorage.setItem(
-      'ZETAKIT_MEMORY_PROFILE_PLOTID_'+
-      rid,
+      'ZETAKIT_MEMORY_PROFILE_PLOTID_'+rid,
       pid
     );
-
   }catch(_){}
-
 
   return true;
 }
 
 
 /* =========================================
-   현재 Zeta 화면 DOM에서도 plotId 탐색
-
-   새 방 페이지에는 보통 캐릭터/plot 프로필 링크가
-   이미 렌더되어 있으므로 API보다 먼저 이걸 사용.
+   문자열 안에서 room에 해당하는 plotId 탐색
 ========================================= */
 
-function plotIdFromPage(){
+function variants(text){
 
-  const selectors=[
+  const raw=
+    String(text||'');
 
-    '[data-sentry-component="ChatRoomHeader"] a[href*="/plots/"]',
+  const list=[raw];
 
-    '[data-sentry-source-file*="ChatRoomHeader"] a[href*="/plots/"]',
+  try{
+    list.push(
+      raw
+        .replace(/\\u002f/gi,'/')
+        .replace(/\\\//g,'/')
+        .replace(/\\"/g,'"')
+    );
+  }catch(_){}
 
-    'nav a[href*="/plots/"]',
-
-    'header a[href*="/plots/"]',
-
-    'a[href*="/plots/"][href*="/profile"]'
-
-  ];
-
-
-  for(
-    const selector of
-    selectors
-  ){
-
-    let links=[];
-
-
+  if(/%2f|%22|%3a/i.test(raw)){
     try{
+      list.push(
+        decodeURIComponent(raw)
+      );
+    }catch(_){}
+  }
 
-      links=[
-        ...D.querySelectorAll(
-          selector
-        )
+  return[
+    ...new Set(list)
+  ];
+}
+
+
+function extractPlotFromText(text,rid){
+
+  const candidates=[];
+
+  const add=(pid,score)=>{
+    pid=decodeSafe(pid).trim();
+
+    if(
+      !pid||
+      pid===rid||
+      pid.length<4
+    )
+      return;
+
+    candidates.push({
+      pid,
+      score
+    });
+  };
+
+
+  for(const source of variants(text)){
+
+    /*
+     * 가장 신뢰도 높음:
+     * plot + room이 URL에 같이 있는 경우
+     */
+    let re=
+      /\/plots\/([^/?#"'\\]+)\/rooms\/([^/?#"'\\]+)/gi;
+
+    let m;
+
+    while((m=re.exec(source))){
+
+      if(
+        decodeSafe(m[2])===
+        rid
+      ){
+        add(
+          m[1],
+          100
+        );
+      }
+    }
+
+
+    /*
+     * 사용자 프로필 편집 URL
+     * /my-plot-chat-profile/{plot}/{room}/...
+     */
+    re=
+      /\/my-plot-chat-profile\/([^/?#"'\\]+)\/([^/?#"'\\]+)/gi;
+
+    while((m=re.exec(source))){
+
+      if(
+        decodeSafe(m[2])===
+        rid
+      ){
+        add(
+          m[1],
+          100
+        );
+      }
+    }
+
+
+    /*
+     * roomId 주변에 plotId JSON이 있는 경우.
+     * Next/RSC 데이터 대응.
+     */
+    let start=0;
+
+    while(true){
+
+      const pos=
+        source.indexOf(
+          rid,
+          start
+        );
+
+      if(pos<0)
+        break;
+
+      const from=
+        Math.max(
+          0,
+          pos-5000
+        );
+
+      const to=
+        Math.min(
+          source.length,
+          pos+5000
+        );
+
+      const nearby=
+        source.slice(
+          from,
+          to
+        );
+
+
+      const patterns=[
+
+        /["']plotId["']\s*:\s*["']([^"'\\]+)["']/i,
+
+        /\\"plotId\\"\s*:\s*\\"([^"\\]+)\\"/i,
+
+        /["']plot_id["']\s*:\s*["']([^"'\\]+)["']/i
+
       ];
 
-    }catch(_){}
+
+      for(const pattern of patterns){
+
+        const hit=
+          nearby.match(pattern);
+
+        if(hit?.[1]){
+          add(
+            hit[1],
+            85
+          );
+        }
+      }
+
+
+      start=
+        pos+
+        Math.max(
+          1,
+          rid.length
+        );
+    }
+
+
+    /*
+     * 현재 캐릭터 profile 링크.
+     * room 연결 단서가 없으므로 우선순위는 낮음.
+     */
+    re=
+      /\/plots\/([^/?#"'\\]+)\/profile(?:[/?#"'\\]|$)/gi;
+
+    while((m=re.exec(source))){
+      add(
+        m[1],
+        45
+      );
+    }
+
+
+    /*
+     * plotId가 문서 전체에서 한 종류만 발견될 경우
+     */
+    const ids=[];
+
+    re=
+      /["']plotId["']\s*:\s*["']([^"'\\]+)["']/gi;
+
+    while((m=re.exec(source))){
+      const value=
+        decodeSafe(m[1]);
+
+      if(
+        value&&
+        !ids.includes(value)
+      ){
+        ids.push(value);
+      }
+    }
+
+    if(ids.length===1){
+      add(
+        ids[0],
+        60
+      );
+    }
+  }
+
+
+  candidates.sort(
+    (a,b)=>
+      b.score-a.score
+  );
+
+
+  return(
+    candidates[0]?.pid||
+    ''
+  );
+}
+
+
+/* =========================================
+   Performance API
+========================================= */
+
+function plotFromPerformance(rid){
+
+  try{
+
+    const entries=
+      performance
+        .getEntriesByType(
+          'resource'
+        )
+        .slice(-500);
 
 
     for(
-      const link of
-      links
+      let i=entries.length-1;
+      i>=0;
+      i--
     ){
+
+      const pid=
+        extractPlotFromText(
+          entries[i]?.name||'',
+          rid
+        );
+
+      if(pid)
+        return pid;
+    }
+
+  }catch(_){}
+
+  return '';
+}
+
+
+/* =========================================
+   현재 DOM
+========================================= */
+
+function plotFromDocument(rid){
+
+  try{
+
+    const links=[
+      ...D.querySelectorAll(
+        'a[href]'
+      )
+    ];
+
+
+    for(const a of links){
 
       const href=
         String(
-          link.getAttribute(
-            'href'
-          )||
-          link.href||
+          a.getAttribute('href')||
+          a.href||
+          ''
+        );
+
+      const pid=
+        extractPlotFromText(
+          href,
+          rid
+        );
+
+      if(pid)
+        return pid;
+    }
+
+  }catch(_){}
+
+
+  /*
+   * Next/RSC inline data 포함
+   */
+  try{
+
+    const scripts=[
+      ...D.querySelectorAll(
+        'script'
+      )
+    ];
+
+
+    for(const script of scripts){
+
+      const text=
+        String(
+          script.textContent||
           ''
         );
 
 
-      const match=
-        href.match(
-          /\/plots\/([^/?#]+)/i
+      if(
+        !text||
+        text.length>
+          5000000
+      )
+        continue;
+
+
+      if(
+        !text.includes(rid)&&
+        !/plotId|\/plots\//i
+          .test(text)
+      )
+        continue;
+
+
+      const pid=
+        extractPlotFromText(
+          text,
+          rid
         );
 
 
-      if(match?.[1]){
-
-        try{
-
-          return decodeURIComponent(
-            match[1]
-          );
-
-        }catch(_){
-
-          return match[1];
-        }
-      }
+      if(pid)
+        return pid;
     }
-  }
+
+  }catch(_){}
 
 
   return '';
@@ -2091,184 +2300,51 @@ function plotIdFromPage(){
 
 
 /* =========================================
-   plot 상세 캐시 존재 여부
+   현재 room 페이지 HTML
+   Zeta API가 아니라 웹페이지 자체를 GET
+   로그인 쿠키 사용
 ========================================= */
 
-function hasPlotPayload(
-  pid
-){
+async function plotFromCurrentPageHtml(rid){
 
-  if(!pid)
-    return false;
+  try{
+
+    const response=
+      await fetch(
+        location.href,
+        {
+          method:'GET',
+          credentials:'include',
+          cache:'no-store'
+        }
+      );
 
 
-  const map=
-    readJson(
-      PLOT_KEY
+    if(!response.ok)
+      return '';
+
+
+    const html=
+      await response.text();
+
+
+    return extractPlotFromText(
+      html,
+      rid
     );
 
+  }catch(_){
 
-  return !!(
-    map
-      ?.[pid]
-      ?.payload
-  );
-}
-
-
-/* =========================================
-   조건 기다리기
-========================================= */
-
-async function waitFor(
-  fn,
-  timeout=9000
-){
-
-  const started=
-    Date.now();
-
-
-  while(
-    Date.now()-
-      started<
-    timeout
-  ){
-
-    try{
-
-      const value=
-        fn();
-
-      if(value)
-        return value;
-
-    }catch(_){}
-
-
-    await sleep(120);
+    return '';
   }
-
-
-  return null;
 }
 
 
 /* =========================================
-   Reading 준비
+   plotId 최종 해결
 ========================================= */
 
-function readingShadow(){
-
-  return D
-    .getElementById(
-      READING_HOST
-    )
-    ?.shadowRoot||
-    null;
-}
-
-
-async function ensureReading(){
-
-  /*
-   * 이미 Reading이 살아 있으면 그대로 사용.
-   */
-  let shadow=
-    await waitFor(
-      ()=>readingShadow(),
-      800
-    );
-
-
-  if(shadow)
-    return shadow;
-
-
-  /*
-   * Reading이 아직 없으면 run.js를 한 번 로드.
-   */
-  D.querySelectorAll(
-    'script[data-zeta-profile-room-reading]'
-  )
-    .forEach(
-      s=>s.remove()
-    );
-
-
-  await new Promise(
-    (resolve,reject)=>{
-
-      const script=
-        D.createElement(
-          'script'
-        );
-
-
-      script.dataset
-        .zetaProfileRoomReading=
-        '1';
-
-
-      script.src=
-        READING_RUN+
-        '?cb='+
-        Date.now();
-
-
-      script.onload=
-        ()=>resolve();
-
-
-      script.onerror=
-        ()=>{
-
-          script.remove();
-
-          reject(
-            Error(
-              '[PROFILE:Reading] Reading을 불러오지 못했습니다.'
-            )
-          );
-        };
-
-
-      (
-        D.head||
-        D.documentElement
-      )
-        .appendChild(
-          script
-        );
-    }
-  );
-
-
-  shadow=
-    await waitFor(
-      ()=>readingShadow(),
-      7000
-    );
-
-
-  if(!shadow){
-
-    throw Error(
-      '[PROFILE:Reading] Reading 초기화를 완료하지 못했습니다.'
-    );
-  }
-
-
-  return shadow;
-}
-
-
-/* =========================================
-   핵심
-   현재 방의 room → plot → plot payload를 자동 확보
-========================================= */
-
-async function ensureRoomContext(){
+async function resolvePlotId(){
 
   const rid=
     currentRoomId();
@@ -2277,202 +2353,1003 @@ async function ensureRoomContext(){
   if(!rid){
 
     throw Error(
-      '[PROFILE:room] 현재 Zeta 대화방을 찾지 못했습니다.'
+      '[PROFILE:room] 현재 Zeta 대화방이 아닙니다.'
     );
   }
 
 
-  /*
-   * 1. 이미 저장된 plotId 확인.
-   */
   let pid=
-    savedPlotId(
+    cachedPlotId(
       rid
     );
 
 
-  /*
-   * 2. 새 방이면 현재 페이지의 plot 링크에서
-   *    바로 알아낼 수 있는지 먼저 확인.
-   */
   if(!pid){
 
     pid=
-      plotIdFromPage();
-
-
-    if(pid){
-
-      rememberPlot(
-        rid,
-        pid
+      plotFromPerformance(
+        rid
       );
-    }
   }
 
 
-  /*
-   * plotId + plot 상세 캐시까지 이미 있으면 끝.
-   */
-  if(
-    pid&&
-    hasPlotPayload(pid)
-  ){
+  if(!pid){
 
-    return{
-      roomId:rid,
-      plotId:pid,
-      source:'cache'
-    };
+    pid=
+      plotFromDocument(
+        rid
+      );
   }
 
 
-  /*
-   * 3. 부족하면 Reading에게 현재 방을
-   *    실제로 확인시킨다.
-   */
-  const shadow=
-    await ensureReading();
+  if(!pid){
+
+    pid=
+      await plotFromCurrentPageHtml(
+        rid
+      );
+  }
 
 
-  const refresh=
-    shadow.querySelector(
-      '[data-refresh]'
-    );
-
-
-  if(!refresh){
+  if(!pid){
 
     throw Error(
-      '[PROFILE:Reading] 현재 방 확인 기능을 찾지 못했습니다.'
+      '[PROFILE:plot] 현재 방의 Plot ID를 페이지에서 찾지 못했습니다.'
     );
   }
 
 
-  try{
-
-    refresh.click();
-
-  }catch(e){
-
-    throw Error(
-      '[PROFILE:Reading] 현재 방 확인 실행 실패 · '+
-      (
-        e?.message||
-        e
-      )
-    );
-  }
-
-
-  /*
-   * 4. Reading이 room → plotId를 저장하고
-   *    plot 상세까지 불러올 때까지 기다린다.
-   */
-  const ready=
-    await waitFor(
-      ()=>{
-
-        let nextPid=
-          savedPlotId(
-            rid
-          );
-
-
-        /*
-         * Reading보다 DOM에서 먼저 찾은 경우도 저장.
-         */
-        if(!nextPid){
-
-          nextPid=
-            plotIdFromPage();
-
-
-          if(nextPid){
-
-            rememberPlot(
-              rid,
-              nextPid
-            );
-          }
-        }
-
-
-        if(
-          !nextPid||
-          !hasPlotPayload(
-            nextPid
-          )
-        ){
-
-          return null;
-        }
-
-
-        return nextPid;
-
-      },
-      10000
-    );
-
-
-  if(!ready){
-
-    throw Error(
-      '[PROFILE:plot] 이 방의 Plot 정보를 자동으로 가져오지 못했습니다.'
-    );
-  }
+  rememberPlot(
+    rid,
+    pid
+  );
 
 
   return{
     roomId:rid,
-    plotId:ready,
-    source:'resolved'
+    plotId:pid
   };
 }
 
 
 /* =========================================
-   기존 zeta-profile API 앞에
-   room bootstrap을 자동 삽입
+   현재 캐릭터 이름
 ========================================= */
 
-const originalGet=
-  typeof P.get==='function'
-    ?P.get.bind(P)
-    :null;
+function currentCharacterName(){
+
+  try{
+
+    const shared=
+      W.ZetaChatDOM;
 
 
-const originalPrepare=
-  typeof P.prepare==='function'
-    ?P.prepare.bind(P)
-    :null;
+    if(
+      shared&&
+      typeof shared.extractRecords===
+        'function'
+    ){
+
+      const records=
+        shared.extractRecords({
+          root:D,
+          includeStatus:false
+        })||[];
 
 
-if(!originalGet){
+      for(
+        let i=records.length-1;
+        i>=0;
+        i--
+      ){
 
-  throw Error(
-    '[ZETA Profile Room Bootstrap] get() 없음'
+        const r=
+          records[i];
+
+
+        if(
+          r?.role==='character'&&
+          clean(r.name)
+        ){
+          return clean(
+            r.name
+          );
+        }
+      }
+    }
+
+  }catch(_){}
+
+
+  return '';
+}
+
+
+/* =========================================
+   JSON에서 캐릭터 프로필 후보 추출
+========================================= */
+
+function pickProfileFromObject(
+  value,
+  wantedName=''
+){
+
+  const found=[];
+  const seen=
+    new WeakSet();
+
+
+  const normalize=s=>
+    clean(s)
+      .toLowerCase()
+      .replace(/\s+/g,'');
+
+
+  const wanted=
+    normalize(
+      wantedName
+    );
+
+
+  function walk(
+    obj,
+    depth=0
+  ){
+
+    if(
+      depth>14||
+      !obj||
+      typeof obj!=='object'
+    )
+      return;
+
+
+    if(seen.has(obj))
+      return;
+
+    seen.add(obj);
+
+
+    if(Array.isArray(obj)){
+
+      obj
+        .slice(0,120)
+        .forEach(
+          x=>walk(
+            x,
+            depth+1
+          )
+        );
+
+      return;
+    }
+
+
+    const name=
+      clean(
+        obj.name||
+        obj.displayName||
+        obj.characterName||
+        ''
+      );
+
+
+    const descriptions=[
+
+      obj.description,
+
+      obj.longDescription,
+
+      obj.summary,
+
+      obj.prompt,
+
+      obj.introduction,
+
+      obj.persona,
+
+      obj.profileDescription
+
+    ]
+      .map(clean)
+      .filter(
+        x=>x.length>=20
+      );
+
+
+    for(const body of descriptions){
+
+      let score=
+        Math.min(
+          50,
+          Math.floor(
+            body.length/100
+          )
+        );
+
+
+      if(
+        wanted&&
+        normalize(name)===
+          wanted
+      ){
+        score+=200;
+      }
+
+
+      if(name)
+        score+=20;
+
+
+      found.push({
+        name,
+        body,
+        score
+      });
+    }
+
+
+    Object
+      .values(obj)
+      .slice(0,180)
+      .forEach(
+        child=>{
+
+          if(
+            child&&
+            typeof child==='object'
+          ){
+            walk(
+              child,
+              depth+1
+            );
+          }
+        }
+      );
+  }
+
+
+  walk(value);
+
+
+  found.sort(
+    (a,b)=>
+      b.score-a.score||
+      b.body.length-a.body.length
+  );
+
+
+  return(
+    found[0]||
+    null
   );
 }
 
 
-if(!originalPrepare){
+/* =========================================
+   Document → char profile
+========================================= */
 
-  throw Error(
-    '[ZETA Profile Room Bootstrap] prepare() 없음'
+function profileFromDocument(
+  doc,
+  wantedName=''
+){
+
+  if(!doc)
+    return null;
+
+
+  /*
+   * JSON 데이터 우선
+   */
+  try{
+
+    const scripts=[
+      ...doc.querySelectorAll(
+        'script#__NEXT_DATA__,script[type="application/json"]'
+      )
+    ]
+      .slice(0,30);
+
+
+    const found=[];
+
+
+    for(const script of scripts){
+
+      const raw=
+        String(
+          script.textContent||
+          ''
+        ).trim();
+
+
+      if(
+        !raw||
+        raw.length>
+          5000000
+      )
+        continue;
+
+
+      try{
+
+        const candidate=
+          pickProfileFromObject(
+            JSON.parse(raw),
+            wantedName
+          );
+
+
+        if(candidate)
+          found.push(candidate);
+
+      }catch(_){}
+    }
+
+
+    found.sort(
+      (a,b)=>
+        b.score-a.score||
+        b.body.length-a.body.length
+    );
+
+
+    if(found[0]){
+      return{
+        name:
+          clean(
+            found[0].name||
+            wantedName
+          ),
+        description:
+          clean(
+            found[0].body
+          )
+      };
+    }
+
+  }catch(_){}
+
+
+  /*
+   * 실제 profile UI
+   */
+  const selectors=[
+
+    '[data-sentry-component*="CharacterProfile" i]',
+
+    '[data-sentry-component*="CharacterInfo" i]',
+
+    '[data-sentry-component*="CharacterDetail" i]',
+
+    '[data-sentry-source-file*="CharacterProfile" i]',
+
+    '[data-sentry-source-file*="CharacterInfo" i]',
+
+    '[class*="character-profile" i]',
+
+    '[class*="profile-description" i]',
+
+    '[class*="character-description" i]',
+
+    '[class*="character-info" i]',
+
+    '[class*="introduction" i]'
+
+  ];
+
+
+  const pieces=[];
+
+
+  for(const selector of selectors){
+
+    try{
+
+      doc
+        .querySelectorAll(selector)
+        .forEach(el=>{
+
+          if(
+            el.closest?.(
+              '[data-sentry-component*="ChatBubble" i],[data-message-id]'
+            )
+          )
+            return;
+
+
+          const text=
+            clean(
+              el.innerText||
+              el.textContent||
+              ''
+            );
+
+
+          if(
+            text.length>=20&&
+            text.length<=12000&&
+            !pieces.includes(text)
+          ){
+            pieces.push(text);
+          }
+        });
+
+    }catch(_){}
+  }
+
+
+  if(pieces.length){
+
+    pieces.sort(
+      (a,b)=>
+        b.length-a.length
+    );
+
+
+    return{
+      name:wantedName,
+      description:
+        pieces[0]
+          .slice(0,8000)
+    };
+  }
+
+
+  /*
+   * meta description은 최후 fallback
+   */
+  try{
+
+    const meta=
+      clean(
+        doc
+          .querySelector(
+            'meta[property="og:description"],meta[name="description"],meta[name="twitter:description"]'
+          )
+          ?.getAttribute(
+            'content'
+          )||
+        ''
+      );
+
+
+    if(
+      meta.length>=40&&
+      !/^(zeta|제타)\b/i
+        .test(meta)
+    ){
+      return{
+        name:wantedName,
+        description:
+          meta.slice(
+            0,
+            8000
+          )
+      };
+    }
+
+  }catch(_){}
+
+
+  return null;
+}
+
+
+/* =========================================
+   현재 페이지에 char profile이 있나
+========================================= */
+
+function currentPageProfile(){
+
+  return profileFromDocument(
+    D,
+    currentCharacterName()
   );
 }
 
+
+/* =========================================
+   plot profile 페이지 후보
+========================================= */
+
+function profileUrls(pid){
+
+  const urls=[];
+
+
+  const add=value=>{
+
+    try{
+
+      const url=
+        new URL(
+          value,
+          location.origin
+        );
+
+
+      if(
+        url.origin!==
+        location.origin
+      )
+        return;
+
+
+      const href=
+        url.href;
+
+
+      if(!urls.includes(href))
+        urls.push(href);
+
+    }catch(_){}
+  };
+
+
+  try{
+
+    D
+      .querySelectorAll(
+        'a[href*="/plots/"]'
+      )
+      .forEach(a=>{
+
+        const href=
+          a.getAttribute('href')||
+          '';
+
+
+        if(
+          href.includes(pid)&&
+          /profile/i.test(href)
+        ){
+          add(href);
+        }
+      });
+
+  }catch(_){}
+
+
+  add(
+    `/ko/plots/${encodeURIComponent(pid)}/profile`
+  );
+
+  add(
+    `/ko/plots/${encodeURIComponent(pid)}`
+  );
+
+
+  return urls;
+}
+
+
+/* =========================================
+   같은 origin profile 페이지 GET
+========================================= */
+
+async function fetchProfilePage(
+  url,
+  wantedName
+){
+
+  try{
+
+    const response=
+      await fetch(
+        url,
+        {
+          method:'GET',
+          credentials:'include',
+          cache:'no-store'
+        }
+      );
+
+
+    if(!response.ok)
+      return null;
+
+
+    const html=
+      await response.text();
+
+
+    const doc=
+      new DOMParser()
+        .parseFromString(
+          html,
+          'text/html'
+        );
+
+
+    const profile=
+      profileFromDocument(
+        doc,
+        wantedName
+      );
+
+
+    if(profile?.description)
+      return profile;
+
+  }catch(_){}
+
+
+  return null;
+}
+
+
+/* =========================================
+   hidden iframe fallback
+========================================= */
+
+async function iframeProfilePage(
+  url,
+  wantedName
+){
+
+  D
+    .getElementById(
+      FRAME_ID
+    )
+    ?.remove();
+
+
+  const frame=
+    D.createElement(
+      'iframe'
+    );
+
+
+  frame.id=
+    FRAME_ID;
+
+
+  frame.setAttribute(
+    'aria-hidden',
+    'true'
+  );
+
+
+  Object.assign(
+    frame.style,
+    {
+      position:'fixed',
+      left:'-10000px',
+      top:'-10000px',
+      width:'2px',
+      height:'2px',
+      opacity:'0',
+      border:'0',
+      pointerEvents:'none'
+    }
+  );
+
+
+  frame.src=
+    url+
+    (
+      url.includes('?')
+        ?'&'
+        :'?'
+    )+
+    'zetaProfileReader='+
+    Date.now();
+
+
+  (
+    D.body||
+    D.documentElement
+  )
+    .appendChild(frame);
+
+
+  const started=
+    Date.now();
+
+
+  try{
+
+    while(
+      Date.now()-started<
+      7000
+    ){
+
+      await sleep(180);
+
+
+      let doc=null;
+
+
+      try{
+        doc=
+          frame.contentDocument;
+      }catch(_){}
+
+
+      if(!doc)
+        continue;
+
+
+      const profile=
+        profileFromDocument(
+          doc,
+          wantedName
+        );
+
+
+      if(
+        profile
+          ?.description
+      ){
+        return profile;
+      }
+    }
+
+  }finally{
+
+    try{
+      frame.remove();
+    }catch(_){}
+  }
+
+
+  return null;
+}
+
+
+/* =========================================
+   CHAR 프로필 확보
+========================================= */
+
+async function resolveCharacterProfile(
+  pid
+){
+
+  const wanted=
+    currentCharacterName();
+
+
+  /*
+   * 기존 Reading plot cache가 있으면 제일 정확함.
+   */
+  const existing=
+    readJson(PLOT_KEY)
+      ?.[pid]
+      ?.payload;
+
+
+  if(existing){
+
+    const candidate=
+      pickProfileFromObject(
+        existing,
+        wanted
+      );
+
+
+    if(candidate?.body){
+
+      return{
+        name:
+          candidate.name||
+          wanted,
+        description:
+          candidate.body
+      };
+    }
+  }
+
+
+  /*
+   * 현재 chat page 자체
+   */
+  let profile=
+    currentPageProfile();
+
+
+  if(
+    profile
+      ?.description
+  ){
+    return profile;
+  }
+
+
+  /*
+   * plot profile 페이지
+   */
+  const urls=
+    profileUrls(pid);
+
+
+  for(const url of urls){
+
+    profile=
+      await fetchProfilePage(
+        url,
+        wanted
+      );
+
+
+    if(
+      profile
+        ?.description
+    ){
+      return profile;
+    }
+  }
+
+
+  /*
+   * CSR 때문에 GET HTML에 데이터가 없는 경우 iframe
+   */
+  for(const url of urls){
+
+    profile=
+      await iframeProfilePage(
+        url,
+        wanted
+      );
+
+
+    if(
+      profile
+        ?.description
+    ){
+      return profile;
+    }
+  }
+
+
+  throw Error(
+    '[PROFILE:char] 이 방의 캐릭터 프로필을 찾지 못했습니다.'
+  );
+}
+
+
+/* =========================================
+   Reading 형식의 plot cache를 만들어
+   기존 zeta-profile.js v2.3이 그대로 사용하게 함
+========================================= */
+
+function writeSyntheticPlotCache(
+  pid,
+  profile
+){
+
+  const map=
+    readJson(PLOT_KEY);
+
+
+  if(
+    map
+      ?.[pid]
+      ?.payload
+  ){
+    return;
+  }
+
+
+  map[pid]={
+
+    payload:{
+
+      name:
+        profile.name||
+        '현재 Plot',
+
+      characters:[
+        {
+          name:
+            profile.name||
+            currentCharacterName()||
+            '캐릭터',
+
+          description:
+            profile.description
+        }
+      ],
+
+      __zetaProfileSynthetic:
+        true
+
+    },
+
+    cachedAt:
+      Date.now()
+
+  };
+
+
+  writeJson(
+    PLOT_KEY,
+    map
+  );
+}
+
+
+/* =========================================
+   room 초기화
+========================================= */
+
+let resolving=null;
+
+
+async function ensureUniversalRoom(){
+
+  if(resolving)
+    return resolving;
+
+
+  resolving=
+    (async()=>{
+
+      const ctx=
+        await resolvePlotId();
+
+
+      const plotMap=
+        readJson(PLOT_KEY);
+
+
+      if(
+        !plotMap
+          ?.[ctx.plotId]
+          ?.payload
+      ){
+
+        const character=
+          await resolveCharacterProfile(
+            ctx.plotId
+          );
+
+
+        if(
+          !character
+            ?.description
+        ){
+
+          throw Error(
+            '[PROFILE:char] 캐릭터 프로필 내용이 없습니다.'
+          );
+        }
+
+
+        writeSyntheticPlotCache(
+          ctx.plotId,
+          character
+        );
+      }
+
+
+      return ctx;
+
+    })()
+      .finally(
+        ()=>{
+          resolving=null;
+        }
+      );
+
+
+  return resolving;
+}
+
+
+/* =========================================
+   기존 v2.3 앞에 universal resolver 연결
+========================================= */
 
 P.get=
   async function(
     options={}
   ){
 
-    await ensureRoomContext();
+    await ensureUniversalRoom();
 
-    return originalGet(
+    return baseGet(
       options
     );
   };
@@ -2481,22 +3358,22 @@ P.get=
 P.prepare=
   async function(){
 
-    await ensureRoomContext();
+    await ensureUniversalRoom();
 
-    return originalPrepare();
+    return basePrepare();
   };
 
 
 P.ensureRoom=
-  ensureRoomContext;
+  ensureUniversalRoom;
 
 
 P.version=
-  '2.4';
+  '2.5';
 
 
 console.log(
-  '[ZETA Profile] Room Bootstrap 설치 완료 · v2.4'
+  '[ZETA Profile] Universal Room v2.5 ready'
 );
 
 })();
