@@ -435,46 +435,70 @@ window[K]={
 
 toast('나레삭제 v11 준비됨');
 
-/* ===== 나레삭제 UI 미감 패치 ===== */
+/* ===== 나레삭제 UI 깔끔 버전 + ✦ 정중앙 보정 ===== */
 (()=>{
-  const UI=document.createElement('style');
-  UI.id='__zeta_narrator_pretty__';
-  document.getElementById(UI.id)?.remove();
+  const ROOT=document.getElementById('__zeta_narrator_v11__');
+  if(!ROOT)return;
 
-  UI.textContent=`
+  /* 문자 ✦ 대신 중심이 정확한 SVG */
+  const run=ROOT.querySelector(':scope > button:first-child');
+  if(run){
+    run.innerHTML=`
+      <svg viewBox="0 0 24 24" width="15" height="15"
+        aria-hidden="true"
+        style="display:block;flex:none;pointer-events:none">
+        <path fill="currentColor"
+          d="M12 2.5 13.55 8.45 19.5 10 13.55 11.55 12 17.5 10.45 11.55 4.5 10 10.45 8.45 12 2.5Z"/>
+      </svg>`;
+  }
+
+  const S='__zeta_narrator_pretty__';
+  document.getElementById(S)?.remove();
+
+  const st=document.createElement('style');
+  st.id=S;
+
+  st.textContent=`
 #__zeta_narrator_v11__{
   height:36px !important;
   border-radius:18px !important;
   border:1px solid rgba(255,255,255,.12) !important;
-  background:rgba(28,30,36,.88) !important;
+  background:rgba(18,20,25,.94) !important;
   box-shadow:
-    0 5px 18px rgba(0,0,0,.28),
+    0 5px 18px rgba(0,0,0,.30),
     inset 0 1px 0 rgba(255,255,255,.05) !important;
-  backdrop-filter:blur(14px) saturate(140%) !important;
-  -webkit-backdrop-filter:blur(14px) saturate(140%) !important;
+  backdrop-filter:blur(14px) !important;
+  -webkit-backdrop-filter:blur(14px) !important;
   overflow:hidden !important;
 }
 
 #__zeta_narrator_v11__ > button{
   width:38px !important;
-  height:36px !important;
   min-width:38px !important;
+  height:36px !important;
+  margin:0 !important;
+  padding:0 !important;
   border:0 !important;
   border-radius:0 !important;
   display:flex !important;
   align-items:center !important;
   justify-content:center !important;
-  padding:0 !important;
-  margin:0 !important;
-  line-height:1 !important;
+  box-sizing:border-box !important;
 }
 
 #__zeta_narrator_v11__ > button:first-child{
   background:transparent !important;
   border-right:1px solid rgba(255,255,255,.07) !important;
-  font-size:16px !important;
   color:rgba(255,255,255,.92) !important;
-  text-shadow:0 0 8px rgba(255,255,255,.18) !important;
+}
+
+#__zeta_narrator_v11__ > button:first-child svg{
+  display:block !important;
+  width:15px !important;
+  height:15px !important;
+  margin:0 !important;
+  padding:0 !important;
+  transform:none !important;
 }
 
 #__zeta_narrator_v11__ > button:first-child:active{
@@ -482,16 +506,18 @@ toast('나레삭제 v11 준비됨');
 }
 
 #__zeta_narrator_v11__ > button:last-child{
+  background:transparent !important;
+  color:rgba(255,255,255,.48) !important;
   font:800 10px/1 system-ui,sans-serif !important;
-  letter-spacing:-.25px !important;
+  letter-spacing:-.2px !important;
 }
 
 #__zeta_narrator_v11__ > button:last-child:active{
-  filter:brightness(1.12);
+  background:rgba(255,255,255,.08) !important;
 }
 `;
 
-  (document.head||document.documentElement).appendChild(UI);
+  (document.head||document.documentElement).appendChild(st);
 })();
 
       
