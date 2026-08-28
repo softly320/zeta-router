@@ -1,16 +1,13 @@
-(()=>{
-'use strict';
+(()=>{'use strict';
 
-const ID='zeta-roleplay-formatter-v9-3';
+const ID='zeta-roleplay-formatter-v10';
 const POS_KEY='zetaFormatterPosition';
 const MODE_KEY='zetaFormatterRemoveNarrator';
 
 document.querySelectorAll('[id^="zeta-roleplay-formatter-"]').forEach(e=>e.remove());
 
 let removeNarrator=localStorage.getItem(MODE_KEY)==='1';
-let editObserver=null;
-let saveObserver=null;
-let processed=null;
+let busy=false;
 
 const visible=e=>{
   if(!e)return false;
@@ -22,7 +19,6 @@ function toast(msg,type='normal'){
   document.getElementById(ID+'-toast')?.remove();
 
   const t=document.createElement('div');
-
   t.id=ID+'-toast';
   t.textContent=msg;
 
@@ -41,7 +37,6 @@ function toast(msg,type='normal'){
     color:'#fff',
     font:'11px system-ui,sans-serif',
     boxShadow:'0 4px 16px rgba(0,0,0,.28)',
-    backdropFilter:'blur(8px)',
     pointerEvents:'none',
     opacity:'0',
     transform:'translateY(3px)',
@@ -80,104 +75,40 @@ function toast(msg,type='normal'){
 }
 
 
-/* =========================================================
-   별표 지문 정리
-   ========================================================= */
-
+/* *지문* *지문* → *지문 지문*
+   \*지문\* 도 일반 별표로 정리 */
 function cleanItalics(text){
 
-  text=String(text??'');
+  text=String(text??'')
+    .replace(/\\\*/g,'*')
+    .replace(
+      /[\u00A0\u200B\u200C\u200D\u2060\uFEFF]/g,
+      ' '
+    );
 
-
-  /*
-   * \*지문\*
-   * ↓
-   * *지문*
-   *
-   * escaped asterisk를 먼저 일반 별표로 통일
-   */
-  text=text.replace(
-    /\\\*/g,
-    '*'
-  );
-
-
-  /*
-   * 보이지 않는 문자까지 일반 공백으로 통일.
-   *
-   * 모바일/웹 편집 과정에서
-   * NBSP, zero-width space 등이 섞여도 잡는다.
-   */
-  text=text.replace(
-    /[\u00A0\u200B\u200C\u200D\u2060\uFEFF]/g,
-    ' '
-  );
-
-
-  /*
-   * 핵심.
-   *
-   * *지문1* *지문2*
-   *
-   * 사이에는 실제 문자열상
-   *
-   *     * *
-   *
-   * 가 존재한다.
-   *
-   * 닫는 별표 + 공백 + 여는 별표를
-   * 통째로 공백 하나로 바꾼다.
-   *
-   * 결과:
-   *
-   * *지문1* *지문2*
-   * ↓
-   * *지문1 지문2*
-   */
-  let previous;
+  let old;
 
   do{
-
-    previous=text;
-
+    old=text;
 
     text=text.replace(
       /\*[ \t\r\n]+\*/g,
       ' '
     );
 
+  }while(text!==old);
 
-  }while(text!==previous);
-
-
-  /*
-   * 혹시 남은 빈 italic 조각 제거
-   *
-   * * *
-   * *    *
-   */
-  text=text.replace(
-    /\*[ \t\r\n]*\*/g,
-    ''
-  );
-
-
-  /*
-   * 마지막 공백 정리
-   */
   return text
-    .replace(
-      /[ \t\r\n]+/g,
-      ' '
-    )
+    .replace(/[ \t\r\n]+/g,' ')
     .trim();
 }
 
 
+/* @이름: / @: 블록 정리 */
 function formatText(input){
 
   const lines=
-    input
+    String(input??'')
       .replace(/\r\n?/g,'\n')
       .split('\n');
 
@@ -193,6 +124,7 @@ function formatText(input){
     if(!line)continue;
 
 
+    /* narrator */
     const narrator=
       line.match(
         /^@\s*:\s*(.*)$/
@@ -215,6 +147,7 @@ function formatText(input){
     }
 
 
+    /* character */
     const character=
       line.match(
         /^@\s*([^:\n]+?)\s*:\s*(.*)$/
@@ -230,9 +163,14 @@ function formatText(input){
       const text=
         character[2].trim();
 
-      if(!characterName&&name){
+
+      if(
+        !characterName&&
+        name
+      ){
         characterName=name;
       }
+
 
       if(text){
         parts.push(text);
@@ -280,6 +218,7 @@ function formatText(input){
 }
 
 
+/* React textarea 값 변경 */
 function setReactValue(el,value){
 
   const setter=
@@ -328,280 +267,120 @@ function setReactValue(el,value){
 }
 
 
-function stop(){
-
-  editObserver?.disconnect();
-  saveObserver?.disconnect();
-
-  editObserver=null;
-  saveObserver=null;
-}
-
-
-function finish(){
-
-  stop();
-
-  runBtn.dataset.busy='0';
-
-  runBtn.style.opacity='1';
-  runBtn.style.pointerEvents='auto';
-
-  toggleBtn.style.pointerEvents='auto';
-
-  processed=null;
-}
-
-
-function findEditor(){
-
-  const editors=[
-    ...document.querySelectorAll(
-      '[data-sentry-component="KeyboardAvoidingView"] textarea[name="message"]'
-    )
-  ].filter(visible);
-
-
-  return editors.at(-1)||null;
-}
-
-
-function getModal(textarea){
-
-  return (
-    textarea.closest(
-      '[data-sentry-component="KeyboardAvoidingView"]'
-    )||
-    textarea
-      .parentElement
-      ?.parentElement
-      ?.parentElement||
-    document.body
-  );
-}
-
-
-function isCheckButton(btn){
-
-  for(
-    const p of
-    btn.querySelectorAll('path')
-  ){
-
-    const d=
-      (
-        p.getAttribute('d')||
-        ''
-      )
-      .replace(/\s+/g,' ')
-      .trim();
-
-
-    if(
-      d.includes('M13.507 5')&&
-      d.includes('6.84 11.673')&&
-      d.includes('3 7.833')
-    ){
-      return true;
-    }
-  }
-
-  return false;
-}
-
-
-function findSaveButton(modal){
-
-  return [
-    ...modal.querySelectorAll(
-      'button'
-    )
-  ]
-  .filter(visible)
-  .find(isCheckButton)||
-  null;
-}
-
-
-function saveWhenReady(textarea){
-
-  const modal=
-    getModal(textarea);
-
-
-  const attempt=()=>{
-
-    const save=
-      findSaveButton(modal);
-
-
-    if(
-      save&&
-      !save.disabled
-    ){
-
-      saveObserver?.disconnect();
-
-      saveObserver=null;
-
-
-      save.click();
-
-
-      finish();
-
-
-      toast(
-        removeNarrator
-          ?'나레이터 삭제 + 저장 완료'
-          :'전체 합치기 + 저장 완료',
-        'ok'
-      );
-
-
-      return true;
-    }
-
-
-    return false;
-  };
-
-
-  if(attempt())return;
-
-
-  saveObserver?.disconnect();
-
-
-  saveObserver=
-    new MutationObserver(
-      attempt
-    );
-
-
-  saveObserver.observe(
-    modal,
-    {
-      subtree:true,
-      childList:true,
-      attributes:true,
-      attributeFilter:[
-        'disabled',
-        'class'
-      ]
-    }
-  );
-
-
-  requestAnimationFrame(
-    attempt
-  );
-}
-
-
-function processEditor(){
-
-  const textarea=
-    findEditor();
-
-
-  if(
-    !textarea||
-    textarea===processed
-  ){
-    return false;
-  }
-
-
-  try{
-
-    const formatted=
-      formatText(
-        textarea.value
-      );
-
-
-    processed=
-      textarea;
-
-
-    setReactValue(
-      textarea,
-      formatted
-    );
-
-
-    editObserver?.disconnect();
-
-    editObserver=null;
-
-
-    saveWhenReady(
-      textarea
-    );
-
-
-    return true;
-
-  }catch(e){
-
-    finish();
-
-
-    toast(
-      e.message||
-      '변환 실패',
-      'error'
-    );
-
-
-    return true;
-  }
-}
-
-
+/* 새 UI: 활성화된 마지막 Edit message */
 function getEditButton(){
 
-  let buttons=[
+  const all=[
     ...document.querySelectorAll(
-      'button[data-testid="edit-button"]'
+      'button[aria-label="Edit message"]:not(:disabled)'
     )
-  ].filter(visible);
+  ];
 
 
-  if(!buttons.length){
-
-    buttons=[
-      ...document.querySelectorAll(
-        'button[aria-label="Edit message"]'
-      )
-    ].filter(visible);
-  }
-
-
-  return buttons.at(-1)||null;
+  return (
+    all.filter(visible).at(-1)||
+    all.at(-1)||
+    null
+  );
 }
 
 
-function run(){
+/* 새 UI textarea */
+function getEditor(){
 
-  if(
-    runBtn.dataset.busy==='1'
-  ){
-    return;
-  }
-
-
-  processed=null;
-
-
-  runBtn.dataset.busy='1';
+  const all=[
+    ...document.querySelectorAll(
+      'textarea[name="message"]'
+    )
+  ]
+  .filter(
+    e=>!e.closest('#'+ID)
+  );
 
 
-  runBtn.style.opacity='.45';
-  runBtn.style.pointerEvents='none';
+  return (
+    all.filter(visible).at(-1)||
+    null
+  );
+}
 
-  toggleBtn.style.pointerEvents='none';
+
+/* 새 UI 저장 버튼 */
+function getSaveButton(){
+
+  const all=[
+    ...document.querySelectorAll(
+      'button[aria-label="Save edit"]:not(:disabled)'
+    )
+  ];
+
+
+  return (
+    all.filter(visible).at(-1)||
+    all.at(-1)||
+    null
+  );
+}
+
+
+function waitFor(fn,timeout=5000){
+
+  return new Promise(
+    (resolve,reject)=>{
+
+      const end=
+        Date.now()+timeout;
+
+
+      const tick=()=>{
+
+        let value=null;
+
+
+        try{
+          value=fn();
+        }catch(_){}
+
+
+        if(value){
+
+          resolve(value);
+
+          return;
+        }
+
+
+        if(
+          Date.now()>end
+        ){
+
+          reject(
+            new Error(
+              '편집 UI를 찾지 못했습니다.'
+            )
+          );
+
+          return;
+        }
+
+
+        setTimeout(
+          tick,
+          60
+        );
+      };
+
+
+      tick();
+    }
+  );
+}
+
+
+/* 실행 */
+async function run(){
+
+  if(busy)return;
 
 
   const edit=
@@ -610,119 +389,97 @@ function run(){
 
   if(!edit){
 
-    finish();
-
-
     toast(
-      '수정 버튼을 찾지 못했습니다.',
+      '활성화된 수정 버튼을 찾지 못했습니다.',
       'error'
     );
-
 
     return;
   }
 
 
-  editObserver=
-    new MutationObserver(
-      processEditor
+  busy=true;
+
+  runBtn.style.opacity='.45';
+  runBtn.style.pointerEvents='none';
+
+  toggleBtn.style.pointerEvents='none';
+
+
+  try{
+
+    edit.click();
+
+
+    const textarea=
+      await waitFor(
+        getEditor
+      );
+
+
+    const formatted=
+      formatText(
+        textarea.value
+      );
+
+
+    setReactValue(
+      textarea,
+      formatted
     );
 
 
-  editObserver.observe(
-    document.body,
-    {
-      subtree:true,
-      childList:true,
-      attributes:true,
-      attributeFilter:[
-        'class',
-        'style',
-        'data-sentry-component'
-      ]
-    }
-  );
+    const save=
+      await waitFor(
+        getSaveButton
+      );
 
 
-  edit.click();
+    save.click();
 
 
-  queueMicrotask(
-    processEditor
-  );
-
-
-  requestAnimationFrame(
-    processEditor
-  );
-}
-
-
-function updateToggle(){
-
-  if(removeNarrator){
-
-    toggleLabel.textContent='N×';
-
-    toggleBtn.title=
-      '나레이터 삭제 ON';
-
-
-    toggleBtn.setAttribute(
-      'aria-label',
-      '나레이터 삭제 ON'
+    toast(
+      removeNarrator
+        ?'나레이터 삭제 + 저장 완료'
+        :'전체 합치기 + 저장 완료',
+      'ok'
     );
 
 
-    Object.assign(
-      toggleBtn.style,
-      {
-        background:
-          'linear-gradient(135deg,#ef4444,#dc2626)',
+  }catch(error){
 
-        color:'#fff',
-
-        boxShadow:
-          'inset 0 0 0 1px rgba(255,255,255,.10),0 0 10px rgba(239,68,68,.28)'
-      }
-    );
-
-  }else{
-
-    toggleLabel.textContent='N';
-
-    toggleBtn.title=
-      '나레이터 삭제 OFF';
-
-
-    toggleBtn.setAttribute(
-      'aria-label',
-      '나레이터 삭제 OFF'
+    console.error(
+      '[ZETA narrator]',
+      error
     );
 
 
-    Object.assign(
-      toggleBtn.style,
-      {
-        background:'transparent',
-
-        color:
-          'rgba(255,255,255,.48)',
-
-        boxShadow:'none'
-      }
+    toast(
+      error?.message||
+      '변환 실패',
+      'error'
     );
+
+
+  }finally{
+
+    busy=false;
+
+    runBtn.style.opacity='1';
+    runBtn.style.pointerEvents='auto';
+
+    toggleBtn.style.pointerEvents='auto';
   }
 }
 
 
+/* UI */
 const wrap=
-  document.createElement('div');
+  document.createElement(
+    'div'
+  );
 
-
-wrap.id=
-  ID;
-
+wrap.id=ID;
 
 Object.assign(
   wrap.style,
@@ -768,26 +525,21 @@ const runBtn=
     'button'
   );
 
-
 runBtn.type='button';
-
 
 runBtn.title=
   '탭: 실행 / 드래그: 이동';
-
 
 runBtn.setAttribute(
   'aria-label',
   'Zeta RP 정리 실행'
 );
 
-
 runBtn.innerHTML=
   '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">'+
   '<path d="M12 2l1.2 4.2L17.5 7.5l-4.3 1.3L12 13l-1.2-4.2-4.3-1.3 4.3-1.3L12 2Z" fill="currentColor"/>'+
   '<path d="M18 13.5l.65 1.85L20.5 16l-1.85.65L18 18.5l-.65-1.85L15.5 16l1.85-.65L18 13.5Z" fill="currentColor"/>'+
   '</svg>';
-
 
 Object.assign(
   runBtn.style,
@@ -828,9 +580,7 @@ const toggleBtn=
     'button'
   );
 
-
 toggleBtn.type='button';
-
 
 Object.assign(
   toggleBtn.style,
@@ -863,7 +613,6 @@ const toggleLabel=
     'span'
   );
 
-
 Object.assign(
   toggleLabel.style,
   {
@@ -876,10 +625,55 @@ Object.assign(
   }
 );
 
-
 toggleBtn.appendChild(
   toggleLabel
 );
+
+
+function updateToggle(){
+
+  if(removeNarrator){
+
+    toggleLabel.textContent='N×';
+
+    toggleBtn.title=
+      '나레이터 삭제 ON';
+
+
+    Object.assign(
+      toggleBtn.style,
+      {
+        background:
+          'linear-gradient(135deg,#ef4444,#dc2626)',
+
+        color:'#fff',
+
+        boxShadow:
+          'inset 0 0 0 1px rgba(255,255,255,.10),0 0 10px rgba(239,68,68,.28)'
+      }
+    );
+
+  }else{
+
+    toggleLabel.textContent='N';
+
+    toggleBtn.title=
+      '나레이터 삭제 OFF';
+
+
+    Object.assign(
+      toggleBtn.style,
+      {
+        background:'transparent',
+
+        color:
+          'rgba(255,255,255,.48)',
+
+        boxShadow:'none'
+      }
+    );
+  }
+}
 
 
 updateToggle();
@@ -887,9 +681,9 @@ updateToggle();
 
 toggleBtn.addEventListener(
   'click',
-  e=>{
+  event=>{
 
-    e.stopPropagation();
+    event.stopPropagation();
 
 
     removeNarrator=
@@ -926,12 +720,10 @@ wrap.append(
 );
 
 
-let saved=null;
-
-
+/* 위치 복원 */
 try{
 
-  saved=
+  const pos=
     JSON.parse(
       localStorage.getItem(
         POS_KEY
@@ -939,35 +731,39 @@ try{
       'null'
     );
 
-}catch(_){}
+
+  if(
+    pos&&
+    Number.isFinite(pos.x)&&
+    Number.isFinite(pos.y)
+  ){
+
+    wrap.style.left=
+      Math.max(
+        4,
+        Math.min(
+          innerWidth-72,
+          pos.x
+        )
+      )+'px';
 
 
-if(
-  saved&&
-  Number.isFinite(saved.x)&&
-  Number.isFinite(saved.y)
-){
+    wrap.style.top=
+      Math.max(
+        4,
+        Math.min(
+          innerHeight-36,
+          pos.y
+        )
+      )+'px';
 
-  wrap.style.left=
-    Math.max(
-      4,
-      Math.min(
-        innerWidth-72,
-        saved.x
-      )
-    )+'px';
+  }else{
 
+    wrap.style.right='12px';
+    wrap.style.bottom='12px';
+  }
 
-  wrap.style.top=
-    Math.max(
-      4,
-      Math.min(
-        innerHeight-36,
-        saved.y
-      )
-    )+'px';
-
-}else{
+}catch(_){
 
   wrap.style.right='12px';
   wrap.style.bottom='12px';
@@ -979,10 +775,7 @@ document.body.appendChild(
 );
 
 
-/* =========================================================
-   모바일 드래그
-   ========================================================= */
-
+/* 드래그 */
 let dragging=false;
 let moved=false;
 let pid=null;
@@ -994,39 +787,33 @@ let originX=0;
 let originY=0;
 
 
-function dragStart(e){
+function dragStart(event){
 
-  if(
-    runBtn.dataset.busy==='1'
-  ){
-    return;
-  }
+  if(busy)return;
 
 
   dragging=true;
   moved=false;
 
-  pid=e.pointerId;
+  pid=event.pointerId;
 
 
-  const r=
+  const rect=
     wrap.getBoundingClientRect();
 
 
-  startX=e.clientX;
-  startY=e.clientY;
+  startX=event.clientX;
+  startY=event.clientY;
 
-  originX=r.left;
-  originY=r.top;
+  originX=rect.left;
+  originY=rect.top;
 
 
   wrap.style.left=
-    r.left+'px';
-
+    rect.left+'px';
 
   wrap.style.top=
-    r.top+'px';
-
+    rect.top+'px';
 
   wrap.style.right='auto';
   wrap.style.bottom='auto';
@@ -1045,27 +832,27 @@ function dragStart(e){
   }catch(_){}
 
 
-  e.preventDefault();
-  e.stopPropagation();
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 
-function dragMove(e){
+function dragMove(event){
 
   if(
     !dragging||
-    e.pointerId!==pid
+    event.pointerId!==pid
   ){
     return;
   }
 
 
   const dx=
-    e.clientX-startX;
+    event.clientX-startX;
 
 
   const dy=
-    e.clientY-startY;
+    event.clientY-startY;
 
 
   if(
@@ -1089,7 +876,9 @@ function dragMove(e){
         innerWidth-
         wrap.offsetWidth-
         4,
-        originX+dx
+
+        originX+
+        dx
       )
     );
 
@@ -1101,7 +890,9 @@ function dragMove(e){
         innerHeight-
         wrap.offsetHeight-
         4,
-        originY+dy
+
+        originY+
+        dy
       )
     );
 
@@ -1114,18 +905,18 @@ function dragMove(e){
     y+'px';
 
 
-  e.preventDefault();
-  e.stopPropagation();
+  event.preventDefault();
+  event.stopPropagation();
 }
 
 
-function dragEnd(e){
+function dragEnd(event){
 
   if(
     !dragging||
     (
-      e.pointerId!=null&&
-      e.pointerId!==pid
+      event.pointerId!=null&&
+      event.pointerId!==pid
     )
   ){
     return;
@@ -1134,9 +925,7 @@ function dragEnd(e){
 
   dragging=false;
 
-
-  runBtn.style.cursor=
-    'grab';
+  runBtn.style.cursor='grab';
 
 
   try{
@@ -1148,19 +937,23 @@ function dragEnd(e){
   }catch(_){}
 
 
-  const r=
+  const rect=
     wrap.getBoundingClientRect();
 
 
-  localStorage.setItem(
+  try{
 
-    POS_KEY,
+    localStorage.setItem(
 
-    JSON.stringify({
-      x:r.left,
-      y:r.top
-    })
-  );
+      POS_KEY,
+
+      JSON.stringify({
+        x:rect.left,
+        y:rect.top
+      })
+    );
+
+  }catch(_){}
 
 
   const shouldRun=
@@ -1177,10 +970,10 @@ function dragEnd(e){
   }
 
 
-  if(e){
+  if(event){
 
-    e.preventDefault();
-    e.stopPropagation();
+    event.preventDefault();
+    event.stopPropagation();
   }
 }
 
@@ -1224,11 +1017,12 @@ document.addEventListener(
 );
 
 
+/* 화면 회전/크기 변경 */
 window.addEventListener(
   'resize',
   ()=>{
 
-    const r=
+    const rect=
       wrap.getBoundingClientRect();
 
 
@@ -1239,7 +1033,7 @@ window.addEventListener(
           innerWidth-
           wrap.offsetWidth-
           4,
-          r.left
+          rect.left
         )
       );
 
@@ -1251,7 +1045,7 @@ window.addEventListener(
           innerHeight-
           wrap.offsetHeight-
           4,
-          r.top
+          rect.top
         )
       );
 
