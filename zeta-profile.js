@@ -1,20 +1,21 @@
 (()=>{'use strict';
 
 const W=window,D=document,K='__ZETA_PROFILE__';
-const RUN='https://zreading.pages.dev/run.js';
-const HOST='zk-reading-host';
 
 const ROOM='ZETAKIT_READING_ROOM_CONTEXT_V1';
-const USER='ZETAKIT_READING_USER_PROFILE_CACHE_V1';
 const PLOT='ZETAKIT_READING_PLOT_CACHE_V1';
-const ROOMSET='ZETAKIT_READING_ROOM_SETTINGS_V1';
+const USER_FALLBACK='__ZETA_PROFILE_USER_PAGE_CACHE_V1__';
 
 const MARK='[ZETA_SHARED_PROFILE_CONTEXT]';
+const IFRAME_ID='__zeta_profile_user_iframe__';
 
 try{W[K]?.destroy?.()}catch(_){}
+D.getElementById(IFRAME_ID)?.remove();
 
 const X=XMLHttpRequest.prototype;
-const OF=W.fetch,OO=X.open,OS=X.send;
+const OF=W.fetch;
+const OO=X.open;
+const OS=X.send;
 
 let current=null;
 let running=null;
@@ -31,92 +32,175 @@ function clean(v){
     .trim();
 }
 
-function jget(k,f={}){
+function jget(key,fallback={}){
   try{
-    const x=JSON.parse(localStorage.getItem(k)||'null');
-    return x&&typeof x==='object'?x:f;
+    const raw=localStorage.getItem(key);
+    if(raw==null)return fallback;
+    const v=JSON.parse(raw);
+    return v&&typeof v==='object'?v:fallback;
   }catch(_){
-    return f;
+    return fallback;
+  }
+}
+
+function jset(key,value){
+  try{
+    localStorage.setItem(key,JSON.stringify(value));
+    return true;
+  }catch(_){
+    return false;
   }
 }
 
 function roomId(){
-  const m=String(location.pathname||'').match(/\/rooms\/([^/?#]+)/i);
+  const m=String(location.pathname||'')
+    .match(/\/rooms\/([^/?#]+)/i);
+
   if(!m)return'';
-  try{return decodeURIComponent(m[1])}catch(_){return m[1]}
+
+  try{return decodeURIComponent(m[1])}
+  catch(_){return m[1]}
 }
 
 function plotId(rid=roomId()){
-  return String(jget(ROOM)?.[rid]?.plotId||'');
+  return String(
+    jget(ROOM)?.[rid]?.plotId||''
+  );
 }
 
-function first(o,keys,f=''){
-  if(!o||typeof o!=='object')return f;
-  for(const k of keys){
-    const v=o[k];
-    if(v!==undefined&&v!==null&&v!=='')return v;
+function first(obj,keys,fallback=''){
+  if(!obj||typeof obj!=='object')return fallback;
+
+  for(const key of keys){
+    const v=obj[key];
+    if(v!==undefined&&v!==null&&v!=='')
+      return v;
   }
-  return f;
+
+  return fallback;
 }
 
-function plotRoot(p){
-  if(!p||typeof p!=='object')return{};
-  if(p.plot&&typeof p.plot==='object')return p.plot;
-  if(p.data?.plot&&typeof p.data.plot==='object')return p.data.plot;
-  if(p.data&&typeof p.data==='object')return p.data;
-  return p;
+function plotRoot(payload){
+  if(!payload||typeof payload!=='object')
+    return {};
+
+  if(payload.plot&&typeof payload.plot==='object')
+    return payload.plot;
+
+  if(payload.data?.plot&&typeof payload.data.plot==='object')
+    return payload.data.plot;
+
+  if(payload.data&&typeof payload.data==='object')
+    return payload.data;
+
+  return payload;
 }
 
-function currentCharName(){
+
+/* =========================================
+   현재 대화 캐릭터 이름
+========================================= */
+
+function currentCharacterName(){
   try{
-    const z=W.ZetaChatDOM;
-    if(!z?.extractRecords)return'';
+    const shared=W.ZetaChatDOM;
 
-    const a=z.extractRecords({
+    if(!shared?.extractRecords)
+      return '';
+
+    const records=shared.extractRecords({
       root:D,
       includeStatus:false
     })||[];
 
-    for(let i=a.length-1;i>=0;i--){
-      const r=a[i];
-      if(r?.role==='character'&&clean(r.name))
+    for(let i=records.length-1;i>=0;i--){
+      const r=records[i];
+
+      if(
+        r?.role==='character'&&
+        clean(r.name)
+      ){
         return clean(r.name);
+      }
     }
   }catch(_){}
 
-  return'';
+  return '';
 }
 
-function charFromPlot(payload){
+
+/* =========================================
+   CHAR
+========================================= */
+
+function characterFromPlot(payload){
   const root=plotRoot(payload);
 
   let chars=
-    Array.isArray(root.characters)?root.characters:
-    Array.isArray(root.characterList)?root.characterList:
-    [];
+    Array.isArray(root.characters)
+      ?root.characters
+      :Array.isArray(root.characterList)
+        ?root.characterList
+        :[];
 
-  if(!chars.length&&root.character)
+  if(
+    !chars.length&&
+    root.character&&
+    typeof root.character==='object'
+  ){
     chars=[root.character];
+  }
 
-  const wanted=currentCharName();
+  const wanted=currentCharacterName();
 
-  let ch=
-    (wanted&&chars.find(x=>
-      clean(first(x,['name','displayName','characterName']))===wanted
-    ))||
-    chars[0]||
-    root;
+  let ch=null;
+
+  if(wanted){
+    ch=chars.find(x=>
+      clean(first(
+        x,
+        ['name','displayName','characterName'],
+        ''
+      ))===wanted
+    )||null;
+  }
+
+  if(!ch)
+    ch=chars[0]||root;
 
   const name=clean(first(
     ch,
-    ['name','displayName','characterName','title'],
-    first(root,['name','displayName','title'],'')
+    [
+      'name',
+      'displayName',
+      'characterName',
+      'title'
+    ],
+    first(
+      root,
+      ['name','displayName','title'],
+      ''
+    )
   ));
 
   const description=clean(first(
     ch,
-    ['description','longDescription','summary','prompt'],
-    first(root,['longDescription','description','summary','prompt'],'')
+    [
+      'description',
+      'longDescription',
+      'summary',
+      'prompt'
+    ],
+    first(
+      root,
+      [
+        'longDescription',
+        'description',
+        'summary',
+        'prompt'
+      ],
+      ''
+    )
   ));
 
   return{
@@ -126,218 +210,251 @@ function charFromPlot(payload){
   };
 }
 
-function roomSettings(rid){
-  return jget(ROOMSET)?.['room:'+rid]||{};
-}
-
-function selectUser(entry,rid){
-  entry=entry&&typeof entry==='object'?entry:{};
-
-  const profiles=Array.isArray(entry.profiles)?entry.profiles:[];
-  const settings=roomSettings(rid);
-
-  const pinned=String(settings.userProfileKey||'');
-  const connected=String(entry.connectedKey||'');
-
-  let p=
-    (pinned&&profiles.find(x=>String(x?.key||'')===pinned))||
-    (connected&&profiles.find(x=>String(x?.key||'')===connected))||
-    null;
-
-  if(!p&&settings.userProfileSnapshot?.description)
-    p=settings.userProfileSnapshot;
-
-  if(!p&&profiles.length===1)
-    p=profiles[0];
-
-  return p||null;
-}
-
-function cacheState(){
+function readCharacter(){
   const rid=roomId();
   const pid=plotId(rid);
 
-  if(!rid||!pid)return null;
+  if(!rid)
+    throw Error('[PROFILE:room] 현재 Zeta 대화방을 찾지 못했습니다.');
 
-  const pe=jget(PLOT)?.[pid];
-  const ue=jget(USER)?.[rid+'|'+pid];
+  if(!pid)
+    throw Error('[PROFILE:plot] 현재 방의 plotId가 없습니다.');
+
+  const entry=jget(PLOT)?.[pid];
+
+  if(!entry?.payload)
+    throw Error('[PROFILE:plot] Reading plot 캐시가 없습니다.');
+
+  const character=characterFromPlot(entry.payload);
+
+  if(!character.description)
+    throw Error('[PROFILE:char] 캐릭터 설명을 plot 캐시에서 찾지 못했습니다.');
 
   return{
-    rid,
-    pid,
-    pe,
-    ue,
-    user:selectUser(ue,rid)
+    roomId:rid,
+    plotId:pid,
+    character,
+    plotCachedAt:Number(entry.cachedAt||0)
   };
 }
 
-function fromCache(){
-  const c=cacheState();
 
-  if(!c?.pe?.payload||!c.user)
+/* =========================================
+   USER 프로필
+   현재 대화 프로필 편집 페이지를
+   보이지 않는 iframe에서 직접 읽음
+========================================= */
+
+function userCacheKey(rid,pid){
+  return rid+'|'+pid;
+}
+
+function readUserFallback(rid,pid){
+  const x=jget(USER_FALLBACK)?.[
+    userCacheKey(rid,pid)
+  ];
+
+  if(
+    !x||
+    !clean(x.description)
+  )
     return null;
 
   return{
-    roomId:c.rid,
-    plotId:c.pid,
-
-    character:charFromPlot(c.pe.payload),
-
-    user:{
-      key:String(c.user.key||''),
-      name:clean(c.user.name),
-      description:clean(c.user.description),
-      source:String(c.user.source||c.user.type||'')
-    },
-
-    cachedAt:{
-      plot:Number(c.pe.cachedAt||0),
-      user:Number(c.ue?.cachedAt||0)
-    }
+    name:clean(x.name),
+    description:clean(x.description),
+    source:'profile-page-cache',
+    cachedAt:Number(x.cachedAt||0)
   };
 }
 
-async function waitUntil(fn,timeout=8000){
-  const start=Date.now();
+function saveUserFallback(rid,pid,user){
+  const map=jget(USER_FALLBACK);
 
-  while(Date.now()-start<timeout){
-    try{
-      const v=fn();
-      if(v)return v;
-    }catch(_){}
+  map[userCacheKey(rid,pid)]={
+    name:clean(user.name),
+    description:clean(user.description),
+    cachedAt:Date.now()
+  };
 
-    await sleep(120);
-  }
-
-  return null;
+  jset(USER_FALLBACK,map);
 }
 
-function shadow(){
-  return D.getElementById(HOST)?.shadowRoot||null;
-}
+async function readUserFromPage(rid,pid){
+  D.getElementById(IFRAME_ID)?.remove();
 
-async function ensureReading(){
-  let s=await waitUntil(()=>shadow(),1200);
-  if(s)return s;
+  const frame=D.createElement('iframe');
 
-  D.querySelectorAll('script[data-zeta-profile-reading]')
-    .forEach(x=>x.remove());
+  frame.id=IFRAME_ID;
+  frame.setAttribute('aria-hidden','true');
 
-  await new Promise((resolve,reject)=>{
-    const x=D.createElement('script');
-
-    x.dataset.zetaProfileReading='1';
-    x.src=RUN+'?cb='+Date.now();
-
-    x.onload=resolve;
-
-    x.onerror=()=>{
-      x.remove();
-      reject(Error('[PROFILE:Reading] run.js 로드 실패'));
-    };
-
-    (D.head||D.documentElement).appendChild(x);
+  Object.assign(frame.style,{
+    position:'fixed',
+    left:'-10000px',
+    top:'-10000px',
+    width:'2px',
+    height:'2px',
+    opacity:'0',
+    border:'0',
+    pointerEvents:'none'
   });
 
-  s=await waitUntil(()=>shadow(),8000);
+  const url=
+    location.origin+
+    '/ko/my-plot-chat-profile/'+
+    encodeURIComponent(pid)+'/'+
+    encodeURIComponent(rid)+
+    '/edit?zetaProfileReader='+Date.now();
 
-  if(!s)
-    throw Error('[PROFILE:Reading] Reading UI 초기화 실패');
+  frame.src=url;
 
-  return s;
-}
+  (D.body||D.documentElement)
+    .appendChild(frame);
 
-async function refreshViaReading(){
-  const rid=roomId();
-
-  if(!rid)
-    throw Error('[PROFILE:room] Zeta 대화방이 아닙니다.');
-
-  const sh=await ensureReading();
-
-  const refresh=sh.querySelector('[data-refresh]');
-
-  if(!refresh)
-    throw Error('[PROFILE:Reading] 현재 방 확인 버튼을 찾지 못했습니다.');
+  const started=Date.now();
+  let lastPath='';
 
   try{
-    refresh.click();
-  }catch(e){
-    throw Error('[PROFILE:Reading] 현재 방 확인 실행 실패 · '+(e?.message||e));
-  }
+    while(Date.now()-started<12000){
+      await sleep(120);
 
-  const pid=await waitUntil(()=>{
-    const id=plotId(rid);
-    if(!id)return null;
+      let doc;
 
-    const p=jget(PLOT)?.[id];
-    return p?.payload?id:null;
-  },9000);
+      try{
+        doc=frame.contentDocument;
+        lastPath=
+          frame.contentWindow?.location?.pathname||
+          '';
+      }catch(_){
+        continue;
+      }
 
-  if(!pid){
-    const old=fromCache();
-    if(old?.character?.description)return old;
+      if(!doc)
+        continue;
+
+      const nameInput=
+        doc.querySelector(
+          'input[name="name"]'
+        );
+
+      const descriptionInput=
+        doc.querySelector(
+          'textarea[name="description"]'
+        );
+
+      const name=
+        clean(nameInput?.value);
+
+      const description=
+        clean(descriptionInput?.value);
+
+      if(description){
+        const user={
+          name,
+          description,
+          source:'profile-page'
+        };
+
+        saveUserFallback(
+          rid,
+          pid,
+          user
+        );
+
+        return user;
+      }
+    }
 
     throw Error(
-      '[PROFILE:plot] Reading이 plot 캐시를 만들지 못했습니다.'
+      '[PROFILE:user] 대화 프로필 편집 페이지에서 name/description을 읽지 못했습니다.'+
+      (lastPath
+        ?'\n현재 iframe 경로: '+lastPath
+        :'')
+    );
+
+  }finally{
+    try{frame.remove()}catch(_){}
+  }
+}
+
+
+/* =========================================
+   공용 프로필
+========================================= */
+
+async function collect(options={}){
+  const base=readCharacter();
+
+  let user=null;
+
+  if(!options.force){
+    user=readUserFallback(
+      base.roomId,
+      base.plotId
     );
   }
 
-  const userRefresh=sh.querySelector('[data-refresh-user-profile]');
+  if(!user){
+    try{
+      user=await readUserFromPage(
+        base.roomId,
+        base.plotId
+      );
+    }catch(e){
+      const old=readUserFallback(
+        base.roomId,
+        base.plotId
+      );
 
-  if(!userRefresh)
-    throw Error('[PROFILE:Reading] 사용자 프로필 갱신 버튼을 찾지 못했습니다.');
+      if(old){
+        console.warn(
+          '[ZETA Profile] user page failed, using cache',
+          e
+        );
 
-  try{
-    userRefresh.click();
-  }catch(e){
-    throw Error('[PROFILE:user] 사용자 프로필 갱신 실행 실패 · '+(e?.message||e));
-  }
-
-  const p=await waitUntil(()=>{
-    const x=fromCache();
-
-    if(
-      x?.character?.description&&
-      x?.user?.description
-    )
-      return x;
-
-    return null;
-  },10000);
-
-  if(p)return p;
-
-  const state=cacheState();
-
-  if(!state?.pe?.payload)
-    throw Error('[PROFILE:plot] 캐릭터 설정 캐시 없음');
-
-  if(!state?.user)
-    throw Error('[PROFILE:user] 현재 사용자 프로필 캐시 없음');
-
-  if(!clean(state.user.description))
-    throw Error('[PROFILE:user] 사용자 프로필 설명이 비어 있음');
-
-  throw Error('[PROFILE] 프로필 캐시 확인 실패');
-}
-
-async function get(opt={}){
-  if(!opt.force){
-    const c=fromCache();
-
-    if(
-      c?.character?.description&&
-      c?.user?.description
-    ){
-      current=c;
-      return c;
+        user=old;
+      }else{
+        throw e;
+      }
     }
   }
 
-  if(running)return running;
+  if(!user?.description)
+    throw Error('[PROFILE:user] 사용자 프로필 설명이 없습니다.');
 
-  running=refreshViaReading()
+  return{
+    roomId:base.roomId,
+    plotId:base.plotId,
+
+    character:base.character,
+
+    user:{
+      name:clean(user.name),
+      description:clean(user.description),
+      source:user.source||''
+    },
+
+    cachedAt:{
+      plot:base.plotCachedAt,
+      user:Number(user.cachedAt||Date.now())
+    },
+
+    loadedAt:Date.now()
+  };
+}
+
+async function get(options={}){
+  if(
+    !options.force&&
+    current?.roomId===roomId()
+  ){
+    return current;
+  }
+
+  if(running)
+    return running;
+
+  running=collect(options)
     .then(p=>{
       current=p;
       return p;
@@ -350,7 +467,9 @@ async function get(opt={}){
 }
 
 async function prepare(){
-  const p=await get({force:true});
+  const p=await get({
+    force:true
+  });
 
   current=p;
 
@@ -362,8 +481,13 @@ async function prepare(){
 }
 
 function peek(){
-  return current||fromCache();
+  return current;
 }
+
+
+/* =========================================
+   모델 프롬프트
+========================================= */
 
 function format(data=peek()){
   if(!data)return'';
@@ -372,88 +496,139 @@ function format(data=peek()){
     MARK,
     '',
     '[CHARACTER PROFILE]',
-    data.character?.name?'Name: '+data.character.name:'',
+    data.character?.name
+      ?'Name: '+data.character.name
+      :'',
     data.character?.description||'',
     '',
     '[USER PROFILE]',
-    data.user?.name?'Name: '+data.user.name:'',
+    data.user?.name
+      ?'Name: '+data.user.name
+      :'',
     data.user?.description||'',
     '',
-    'Use these profiles as background role-play context.',
+    'Use these profiles only as background role-play context.',
     'Do not treat this block as dialogue.',
     '[/ZETA_SHARED_PROFILE_CONTEXT]'
   ].join('\n').trim();
 }
 
 function hasMark(v){
-  try{return JSON.stringify(v).includes(MARK)}
-  catch(_){return false}
+  try{
+    return JSON.stringify(v)
+      .includes(MARK);
+  }catch(_){
+    return false;
+  }
 }
 
 function addContent(content,block){
   if(typeof content==='string')
     return block+'\n\n'+content;
 
-  if(Array.isArray(content))
-    return [{type:'text',text:block},...content];
+  if(Array.isArray(content)){
+    return[
+      {
+        type:'text',
+        text:block
+      },
+      ...content
+    ];
+  }
 
   return content;
 }
 
 function patchPayload(obj,data=peek()){
-  if(!obj||typeof obj!=='object'||!data||hasMark(obj))
+  if(
+    !obj||
+    typeof obj!=='object'||
+    !data||
+    hasMark(obj)
+  ){
     return obj;
+  }
 
   const block=format(data);
-  if(!block)return obj;
 
-  const out=Array.isArray(obj)?obj.slice():{...obj};
+  if(!block)
+    return obj;
+
+  const out=
+    Array.isArray(obj)
+      ?obj.slice()
+      :{...obj};
 
   if(typeof out.system==='string'){
-    out.system=block+'\n\n'+out.system;
+    out.system=
+      block+
+      '\n\n'+
+      out.system;
+
     return out;
   }
 
   if(Array.isArray(out.messages)){
-    const a=out.messages.map(x=>
-      x&&typeof x==='object'?{...x}:x
-    );
+    const messages=
+      out.messages.map(m=>
+        m&&typeof m==='object'
+          ?{...m}
+          :m
+      );
 
-    const i=a.findIndex(x=>
-      x&&/^(system|developer)$/i.test(String(x.role||''))
+    const i=messages.findIndex(m=>
+      m&&
+      /^(system|developer)$/i.test(
+        String(m.role||'')
+      )
     );
 
     if(i>=0){
-      a[i]={
-        ...a[i],
-        content:addContent(a[i].content,block)
+      messages[i]={
+        ...messages[i],
+        content:addContent(
+          messages[i].content,
+          block
+        )
       };
     }else{
-      a.unshift({
+      messages.unshift({
         role:'system',
         content:block
       });
     }
 
-    out.messages=a;
+    out.messages=messages;
     return out;
   }
 
   if(typeof out.prompt==='string'){
-    out.prompt=block+'\n\n'+out.prompt;
+    out.prompt=
+      block+
+      '\n\n'+
+      out.prompt;
+
     return out;
   }
 
   if(typeof out.input==='string'){
-    out.input=block+'\n\n'+out.input;
+    out.input=
+      block+
+      '\n\n'+
+      out.input;
+
     return out;
   }
 
   if(Array.isArray(out.input)){
     out.input=[
-      {role:'system',content:block},
+      {
+        role:'system',
+        content:block
+      },
       ...out.input
     ];
+
     return out;
   }
 
@@ -465,7 +640,9 @@ function patchPayload(obj,data=peek()){
     const value={
       parts:[
         {text:block},
-        ...(Array.isArray(old?.parts)?old.parts:[])
+        ...(Array.isArray(old?.parts)
+          ?old.parts
+          :[])
       ]
     };
 
@@ -481,8 +658,14 @@ function patchPayload(obj,data=peek()){
 }
 
 function shouldPatch(url,obj,stack=''){
-  if(Date.now()>armedUntil)return false;
-  if(!obj||typeof obj!=='object')return false;
+  if(Date.now()>armedUntil)
+    return false;
+
+  if(
+    !obj||
+    typeof obj!=='object'
+  )
+    return false;
 
   const u=String(url||'');
 
@@ -493,7 +676,9 @@ function shouldPatch(url,obj,stack=''){
     return false;
 
   if(
-    /zreading\.pages\.dev|reading\.js/i.test(String(stack))
+    /zreading\.pages\.dev|reading\.js/i.test(
+      String(stack||'')
+    )
   )
     return false;
 
@@ -507,61 +692,115 @@ function shouldPatch(url,obj,stack=''){
   );
 }
 
+
+/* =========================================
+   fetch
+========================================= */
+
 async function fetchHook(input,init){
-  const stack=String(new Error().stack||'');
+  const stack=
+    String(new Error().stack||'');
+
   const url=
     typeof input==='string'
       ?input
       :input?.url||'';
 
   try{
-    if(init&&typeof init.body==='string'){
-      let o;
+    if(
+      init&&
+      typeof init.body==='string'
+    ){
+      let obj=null;
 
-      try{o=JSON.parse(init.body)}catch(_){o=null}
+      try{
+        obj=JSON.parse(init.body);
+      }catch(_){}
 
-      if(shouldPatch(url,o,stack)){
+      if(
+        shouldPatch(
+          url,
+          obj,
+          stack
+        )
+      ){
         init={
           ...init,
           body:JSON.stringify(
-            patchPayload(o)
+            patchPayload(obj)
           )
         };
       }
 
     }else if(input instanceof Request){
       const method=
-        String(init?.method||input.method||'GET').toUpperCase();
+        String(
+          init?.method||
+          input.method||
+          'GET'
+        ).toUpperCase();
 
-      if(method!=='GET'&&method!=='HEAD'&&!(init&&init.body)){
-        const text=await input.clone().text();
-        let o;
+      if(
+        method!=='GET'&&
+        method!=='HEAD'&&
+        !(init&&init.body)
+      ){
+        const text=
+          await input.clone().text();
 
-        try{o=JSON.parse(text)}catch(_){o=null}
+        let obj=null;
 
-        if(shouldPatch(url,o,stack)){
+        try{
+          obj=JSON.parse(text);
+        }catch(_){}
+
+        if(
+          shouldPatch(
+            url,
+            obj,
+            stack
+          )
+        ){
           input=new Request(
             input,
             {
               ...(init||{}),
               body:JSON.stringify(
-                patchPayload(o)
+                patchPayload(obj)
               )
             }
           );
         }
       }
     }
+
   }catch(e){
-    console.warn('[ZETA Profile fetch]',e);
+    console.warn(
+      '[ZETA Profile fetch]',
+      e
+    );
   }
 
-  return OF.call(this,input,init);
+  return OF.call(
+    this,
+    input,
+    init
+  );
 }
 
+
+/* =========================================
+   XHR
+========================================= */
+
 function xhrOpen(method,url){
-  this.__zetaProfileUrl=String(url||'');
-  return OO.apply(this,arguments);
+  this.__zetaProfileUrl=
+    String(url||'');
+
+  return OO.apply(
+    this,
+    arguments
+  );
 }
 
 function xhrSend(body){
@@ -570,54 +809,78 @@ function xhrSend(body){
     Date.now()<armedUntil
   ){
     try{
-      const o=JSON.parse(body);
+      const obj=JSON.parse(body);
 
       if(
         shouldPatch(
           this.__zetaProfileUrl,
-          o,
+          obj,
           'xhr'
         )
       ){
         body=JSON.stringify(
-          patchPayload(o)
+          patchPayload(obj)
         );
       }
     }catch(_){}
   }
 
-  return OS.call(this,body);
+  return OS.call(
+    this,
+    body
+  );
 }
 
-function destroy(){
-  if(W.fetch===fetchHook)W.fetch=OF;
-  if(X.open===xhrOpen)X.open=OO;
-  if(X.send===xhrSend)X.send=OS;
 
-  try{delete W[K]}
-  catch(_){W[K]=null}
+/* =========================================
+   lifecycle
+========================================= */
+
+function destroy(){
+  D.getElementById(
+    IFRAME_ID
+  )?.remove();
+
+  if(W.fetch===fetchHook)
+    W.fetch=OF;
+
+  if(X.open===xhrOpen)
+    X.open=OO;
+
+  if(X.send===xhrSend)
+    X.send=OS;
+
+  try{
+    delete W[K];
+  }catch(_){
+    W[K]=null;
+  }
 }
 
 async function test(){
   const p=await prepare();
 
-  console.log('[ZETA PROFILE]',p);
+  console.log(
+    '[ZETA PROFILE]',
+    p
+  );
 
   alert(
     '프로필 준비 완료\n\n'+
-    'CHAR: '+(p.character?.name||'-')+'\n'+
-    'USER: '+(p.user?.name||'-')+'\n'+
-    'v2.2'
+    'CHAR: '+
+    (p.character?.name||'-')+
+    '\nUSER: '+
+    (p.user?.name||'-')+
+    '\n\nv2.3'
   );
 
   return p;
 }
 
+
 W.fetch=fetchHook;
 X.open=xhrOpen;
 X.send=xhrSend;
-
-current=fromCache();
 
 W[K]={
   get,
@@ -627,9 +890,11 @@ W[K]={
   patchPayload,
   test,
   destroy,
-  version:'2.2'
+  version:'2.3'
 };
 
-console.log('[ZETA Profile] v2.2 ready');
+console.log(
+  '[ZETA Profile] v2.3 ready'
+);
 
 })();
