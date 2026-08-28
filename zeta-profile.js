@@ -1735,3 +1735,768 @@ console.log(
 );
 
 })();
+
+/* =========================================
+   ZETA PROFILE ROOM BOOTSTRAP v1.0
+   처음 들어간 방도 room → plot 자동 연결
+========================================= */
+
+(()=>{'use strict';
+
+const W=window;
+const D=document;
+
+const P=W.__ZETA_PROFILE__;
+
+if(!P){
+  console.warn(
+    '[ZETA Profile Room Bootstrap] profile module 없음'
+  );
+  return;
+}
+
+if(P.__roomBootstrapInstalled){
+  return;
+}
+
+P.__roomBootstrapInstalled=true;
+
+
+const ROOM_KEY=
+  'ZETAKIT_READING_ROOM_CONTEXT_V1';
+
+const PLOT_KEY=
+  'ZETAKIT_READING_PLOT_CACHE_V1';
+
+const READING_HOST=
+  'zk-reading-host';
+
+const READING_RUN=
+  'https://zreading.pages.dev/run.js';
+
+
+const sleep=ms=>
+  new Promise(
+    r=>setTimeout(r,ms)
+  );
+
+
+function readJson(
+  key,
+  fallback={}
+){
+
+  try{
+
+    const raw=
+      localStorage.getItem(
+        key
+      );
+
+    if(raw==null)
+      return fallback;
+
+
+    const value=
+      JSON.parse(raw);
+
+
+    return(
+      value&&
+      typeof value==='object'
+        ?value
+        :fallback
+    );
+
+  }catch(_){
+
+    return fallback;
+  }
+}
+
+
+function writeJson(
+  key,
+  value
+){
+
+  try{
+
+    localStorage.setItem(
+      key,
+      JSON.stringify(value)
+    );
+
+    return true;
+
+  }catch(_){
+
+    return false;
+  }
+}
+
+
+/* =========================================
+   현재 roomId
+========================================= */
+
+function currentRoomId(){
+
+  const match=
+    String(
+      location.pathname||
+      ''
+    )
+      .match(
+        /\/rooms\/([^/?#]+)/i
+      );
+
+
+  if(!match)
+    return '';
+
+
+  try{
+
+    return decodeURIComponent(
+      match[1]
+    );
+
+  }catch(_){
+
+    return match[1];
+  }
+}
+
+
+/* =========================================
+   저장된 plotId 확인
+
+   Reading 최신 캐시
+   + 예전 Memory/Persona 캐시까지 전부 확인
+========================================= */
+
+function savedPlotId(
+  rid
+){
+
+  rid=
+    String(
+      rid||
+      ''
+    );
+
+
+  if(!rid)
+    return '';
+
+
+  const roomMap=
+    readJson(
+      ROOM_KEY
+    );
+
+
+  const direct=
+    String(
+      roomMap
+        ?.[rid]
+        ?.plotId||
+      ''
+    );
+
+
+  if(direct)
+    return direct;
+
+
+  try{
+
+    return String(
+
+      localStorage.getItem(
+        'ZETAKIT_MEMORY_PROFILE_PLOTID_'+
+        rid
+      )||
+
+      localStorage.getItem(
+        'zeta-persona-editor-plotid-'+
+        rid
+      )||
+
+      ''
+
+    );
+
+  }catch(_){
+
+    return '';
+  }
+}
+
+
+/* =========================================
+   plotId 저장
+
+   Reading이 쓰는 형식과 동일하게 맞춤
+========================================= */
+
+function rememberPlot(
+  rid,
+  pid
+){
+
+  rid=
+    String(
+      rid||
+      ''
+    );
+
+  pid=
+    String(
+      pid||
+      ''
+    );
+
+
+  if(
+    !rid||
+    !pid
+  )
+    return false;
+
+
+  const map=
+    readJson(
+      ROOM_KEY
+    );
+
+
+  map[rid]={
+    ...(
+      map[rid]&&
+      typeof map[rid]==='object'
+        ?map[rid]
+        :{}
+    ),
+
+    plotId:pid
+  };
+
+
+  writeJson(
+    ROOM_KEY,
+    map
+  );
+
+
+  try{
+
+    localStorage.setItem(
+      'ZETAKIT_MEMORY_PROFILE_PLOTID_'+
+      rid,
+      pid
+    );
+
+  }catch(_){}
+
+
+  return true;
+}
+
+
+/* =========================================
+   현재 Zeta 화면 DOM에서도 plotId 탐색
+
+   새 방 페이지에는 보통 캐릭터/plot 프로필 링크가
+   이미 렌더되어 있으므로 API보다 먼저 이걸 사용.
+========================================= */
+
+function plotIdFromPage(){
+
+  const selectors=[
+
+    '[data-sentry-component="ChatRoomHeader"] a[href*="/plots/"]',
+
+    '[data-sentry-source-file*="ChatRoomHeader"] a[href*="/plots/"]',
+
+    'nav a[href*="/plots/"]',
+
+    'header a[href*="/plots/"]',
+
+    'a[href*="/plots/"][href*="/profile"]'
+
+  ];
+
+
+  for(
+    const selector of
+    selectors
+  ){
+
+    let links=[];
+
+
+    try{
+
+      links=[
+        ...D.querySelectorAll(
+          selector
+        )
+      ];
+
+    }catch(_){}
+
+
+    for(
+      const link of
+      links
+    ){
+
+      const href=
+        String(
+          link.getAttribute(
+            'href'
+          )||
+          link.href||
+          ''
+        );
+
+
+      const match=
+        href.match(
+          /\/plots\/([^/?#]+)/i
+        );
+
+
+      if(match?.[1]){
+
+        try{
+
+          return decodeURIComponent(
+            match[1]
+          );
+
+        }catch(_){
+
+          return match[1];
+        }
+      }
+    }
+  }
+
+
+  return '';
+}
+
+
+/* =========================================
+   plot 상세 캐시 존재 여부
+========================================= */
+
+function hasPlotPayload(
+  pid
+){
+
+  if(!pid)
+    return false;
+
+
+  const map=
+    readJson(
+      PLOT_KEY
+    );
+
+
+  return !!(
+    map
+      ?.[pid]
+      ?.payload
+  );
+}
+
+
+/* =========================================
+   조건 기다리기
+========================================= */
+
+async function waitFor(
+  fn,
+  timeout=9000
+){
+
+  const started=
+    Date.now();
+
+
+  while(
+    Date.now()-
+      started<
+    timeout
+  ){
+
+    try{
+
+      const value=
+        fn();
+
+      if(value)
+        return value;
+
+    }catch(_){}
+
+
+    await sleep(120);
+  }
+
+
+  return null;
+}
+
+
+/* =========================================
+   Reading 준비
+========================================= */
+
+function readingShadow(){
+
+  return D
+    .getElementById(
+      READING_HOST
+    )
+    ?.shadowRoot||
+    null;
+}
+
+
+async function ensureReading(){
+
+  /*
+   * 이미 Reading이 살아 있으면 그대로 사용.
+   */
+  let shadow=
+    await waitFor(
+      ()=>readingShadow(),
+      800
+    );
+
+
+  if(shadow)
+    return shadow;
+
+
+  /*
+   * Reading이 아직 없으면 run.js를 한 번 로드.
+   */
+  D.querySelectorAll(
+    'script[data-zeta-profile-room-reading]'
+  )
+    .forEach(
+      s=>s.remove()
+    );
+
+
+  await new Promise(
+    (resolve,reject)=>{
+
+      const script=
+        D.createElement(
+          'script'
+        );
+
+
+      script.dataset
+        .zetaProfileRoomReading=
+        '1';
+
+
+      script.src=
+        READING_RUN+
+        '?cb='+
+        Date.now();
+
+
+      script.onload=
+        ()=>resolve();
+
+
+      script.onerror=
+        ()=>{
+
+          script.remove();
+
+          reject(
+            Error(
+              '[PROFILE:Reading] Reading을 불러오지 못했습니다.'
+            )
+          );
+        };
+
+
+      (
+        D.head||
+        D.documentElement
+      )
+        .appendChild(
+          script
+        );
+    }
+  );
+
+
+  shadow=
+    await waitFor(
+      ()=>readingShadow(),
+      7000
+    );
+
+
+  if(!shadow){
+
+    throw Error(
+      '[PROFILE:Reading] Reading 초기화를 완료하지 못했습니다.'
+    );
+  }
+
+
+  return shadow;
+}
+
+
+/* =========================================
+   핵심
+   현재 방의 room → plot → plot payload를 자동 확보
+========================================= */
+
+async function ensureRoomContext(){
+
+  const rid=
+    currentRoomId();
+
+
+  if(!rid){
+
+    throw Error(
+      '[PROFILE:room] 현재 Zeta 대화방을 찾지 못했습니다.'
+    );
+  }
+
+
+  /*
+   * 1. 이미 저장된 plotId 확인.
+   */
+  let pid=
+    savedPlotId(
+      rid
+    );
+
+
+  /*
+   * 2. 새 방이면 현재 페이지의 plot 링크에서
+   *    바로 알아낼 수 있는지 먼저 확인.
+   */
+  if(!pid){
+
+    pid=
+      plotIdFromPage();
+
+
+    if(pid){
+
+      rememberPlot(
+        rid,
+        pid
+      );
+    }
+  }
+
+
+  /*
+   * plotId + plot 상세 캐시까지 이미 있으면 끝.
+   */
+  if(
+    pid&&
+    hasPlotPayload(pid)
+  ){
+
+    return{
+      roomId:rid,
+      plotId:pid,
+      source:'cache'
+    };
+  }
+
+
+  /*
+   * 3. 부족하면 Reading에게 현재 방을
+   *    실제로 확인시킨다.
+   */
+  const shadow=
+    await ensureReading();
+
+
+  const refresh=
+    shadow.querySelector(
+      '[data-refresh]'
+    );
+
+
+  if(!refresh){
+
+    throw Error(
+      '[PROFILE:Reading] 현재 방 확인 기능을 찾지 못했습니다.'
+    );
+  }
+
+
+  try{
+
+    refresh.click();
+
+  }catch(e){
+
+    throw Error(
+      '[PROFILE:Reading] 현재 방 확인 실행 실패 · '+
+      (
+        e?.message||
+        e
+      )
+    );
+  }
+
+
+  /*
+   * 4. Reading이 room → plotId를 저장하고
+   *    plot 상세까지 불러올 때까지 기다린다.
+   */
+  const ready=
+    await waitFor(
+      ()=>{
+
+        let nextPid=
+          savedPlotId(
+            rid
+          );
+
+
+        /*
+         * Reading보다 DOM에서 먼저 찾은 경우도 저장.
+         */
+        if(!nextPid){
+
+          nextPid=
+            plotIdFromPage();
+
+
+          if(nextPid){
+
+            rememberPlot(
+              rid,
+              nextPid
+            );
+          }
+        }
+
+
+        if(
+          !nextPid||
+          !hasPlotPayload(
+            nextPid
+          )
+        ){
+
+          return null;
+        }
+
+
+        return nextPid;
+
+      },
+      10000
+    );
+
+
+  if(!ready){
+
+    throw Error(
+      '[PROFILE:plot] 이 방의 Plot 정보를 자동으로 가져오지 못했습니다.'
+    );
+  }
+
+
+  return{
+    roomId:rid,
+    plotId:ready,
+    source:'resolved'
+  };
+}
+
+
+/* =========================================
+   기존 zeta-profile API 앞에
+   room bootstrap을 자동 삽입
+========================================= */
+
+const originalGet=
+  typeof P.get==='function'
+    ?P.get.bind(P)
+    :null;
+
+
+const originalPrepare=
+  typeof P.prepare==='function'
+    ?P.prepare.bind(P)
+    :null;
+
+
+if(!originalGet){
+
+  throw Error(
+    '[ZETA Profile Room Bootstrap] get() 없음'
+  );
+}
+
+
+if(!originalPrepare){
+
+  throw Error(
+    '[ZETA Profile Room Bootstrap] prepare() 없음'
+  );
+}
+
+
+P.get=
+  async function(
+    options={}
+  ){
+
+    await ensureRoomContext();
+
+    return originalGet(
+      options
+    );
+  };
+
+
+P.prepare=
+  async function(){
+
+    await ensureRoomContext();
+
+    return originalPrepare();
+  };
+
+
+P.ensureRoom=
+  ensureRoomContext;
+
+
+P.version=
+  '2.4';
+
+
+console.log(
+  '[ZETA Profile] Room Bootstrap 설치 완료 · v2.4'
+);
+
+})();
