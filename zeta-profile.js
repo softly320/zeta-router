@@ -1,769 +1,1801 @@
 (()=>{'use strict';
 
-const W=window,D=document,K='__ZETA_PROFILE__';
-try{W[K]?.destroy?.()}catch{}
+const W=window;
+const D=document;
 
-const API='https://api.zeta-ai.io';
-const ROOM_KEY='ZETAKIT_READING_ROOM_CONTEXT_V1';
-const USER_KEY='ZETAKIT_READING_USER_PROFILE_CACHE_V1';
-const PLOT_KEY='ZETAKIT_READING_PLOT_CACHE_V1';
-const SETTINGS_KEY='ZETAKIT_READING_ROOM_SETTINGS_V1';
-const USER_TTL=30*60*1000;
-const PLOT_TTL=7*24*60*60*1000;
-const MARK='[ZETA_SHARED_PROFILE_CONTEXT]';
+const K='__ZETA_PROFILE__';
 
-const X=XMLHttpRequest.prototype;
-const OF=W.fetch,OO=X.open,OS=X.send,OH=X.setRequestHeader;
-const xhrMeta=new WeakMap();
+try{
+  W[K]?.destroy?.();
+}catch(_){}
 
-let auth='';
+
+/* =========================================
+   Reading 저장소
+========================================= */
+
+const ROOM_KEY=
+  'ZETAKIT_READING_ROOM_CONTEXT_V1';
+
+const USER_KEY=
+  'ZETAKIT_READING_USER_PROFILE_CACHE_V1';
+
+const PLOT_KEY=
+  'ZETAKIT_READING_PLOT_CACHE_V1';
+
+const SETTINGS_KEY=
+  'ZETAKIT_READING_ROOM_SETTINGS_V1';
+
+const READING_HOST=
+  'zk-reading-host';
+
+const USER_TTL=
+  30*60*1000;
+
+const PLOT_TTL=
+  7*24*60*60*1000;
+
+const MARK=
+  '[ZETA_SHARED_PROFILE_CONTEXT]';
+
+
+/* =========================================
+   원본 네트워크
+========================================= */
+
+const X=
+  XMLHttpRequest.prototype;
+
+const OF=
+  W.fetch;
+
+const OO=
+  X.open;
+
+const OS=
+  X.send;
+
+
 let current=null;
 let running=null;
 
-const clean=v=>String(v??'')
-  .replace(/[\u200b\u2060\ufeff]/g,'')
-  .replace(/\r/g,'')
-  .replace(/[ \t]+\n/g,'\n')
-  .replace(/\n{3,}/g,'\n\n')
-  .trim();
+/*
+ * prepare() 이후 모델 요청에만
+ * 프로필을 주입한다.
+ */
+let armedUntil=0;
 
-function jget(k,f={}){
-  try{
-    const v=JSON.parse(localStorage.getItem(k)||'null');
-    return v&&typeof v==='object'?v:f;
-  }catch{return f}
-}
 
-function jset(k,v){
-  try{localStorage.setItem(k,JSON.stringify(v));return true}
-  catch{return false}
-}
-
-function roomId(){
-  const m=String(location.pathname||'')
-    .match(/\/rooms\/([^/?#]+)/i);
-  return m?decodeURIComponent(m[1]):'';
-}
-
-function plotId(rid=roomId()){
-  return String(jget(ROOM_KEY)?.[rid]?.plotId||'');
-}
-
-function rememberPlot(rid,pid){
-  if(!rid||!pid)return;
-  const m=jget(ROOM_KEY);
-  m[rid]=Object.assign({},m[rid]||{},{
-    roomId:rid,plotId:pid,updatedAt:Date.now()
-  });
-  jset(ROOM_KEY,m);
-}
-
-function first(o,keys,f=''){
-  if(!o||typeof o!=='object')return f;
-  for(const k of keys)
-    if(o[k]!==undefined&&o[k]!==null&&o[k]!=='')return o[k];
-  return f;
-}
-
-function plotRoot(p){
-  if(!p||typeof p!=='object')return{};
-  if(p.plot&&typeof p.plot==='object')return p.plot;
-  if(p.data?.plot&&typeof p.data.plot==='object')return p.data.plot;
-  if(p.data&&typeof p.data==='object')return p.data;
-  return p;
-}
-
-function characterFromPlot(payload){
-  const root=plotRoot(payload);
-  let chars=
-    Array.isArray(root.characters)?root.characters:
-    Array.isArray(root.characterList)?root.characterList:[];
-
-  if(!chars.length&&root.character&&typeof root.character==='object')
-    chars=[root.character];
-
-  const wanted=String(
-    first(root,[
-      'characterId','mainCharacterId',
-      'plotCharacterId','creatorCharacterId'
-    ],'')
+const sleep=ms=>
+  new Promise(
+    r=>setTimeout(r,ms)
   );
 
-  let ch=
-    (wanted&&chars.find(x=>
-      String(first(x,['id','characterId','uuid'],'')||'')===wanted
-    ))||chars[0]||root;
 
-  const name=clean(first(ch,[
-    'name','displayName','characterName','title'
-  ],first(root,['name','title','displayName'],'') ));
+function clean(v){
 
-  const description=clean(first(ch,[
-    'description','longDescription','summary','prompt'
-  ],first(root,[
-    'longDescription','description','summary','prompt'
-  ],'')));
+  return String(v??'')
 
-  const parts=[];
-  const plotName=clean(first(root,['name','title','displayName','plotName'],''));
-  const plotDesc=clean(first(root,['longDescription','description','summary'],''));
+    .replace(
+      /[\u200b\u2060\ufeff]/g,
+      ''
+    )
 
-  if(plotName)parts.push('플롯: '+plotName);
-  if(plotDesc&&plotDesc!==description)parts.push(plotDesc);
+    .replace(
+      /\r/g,
+      ''
+    )
 
-  chars.slice(0,16).forEach((c,i)=>{
-    const n=clean(first(c,['name','displayName','characterName'],`캐릭터 ${i+1}`));
-    const d=clean(first(c,['description','longDescription','summary','prompt'],''));
-    if(n||d)parts.push(`${n}${d?'\n'+d:''}`);
-  });
+    .replace(
+      /[ \t]+\n/g,
+      '\n'
+    )
 
-  if(!parts.length&&description)parts.push(description);
+    .replace(
+      /\n{3,}/g,
+      '\n\n'
+    )
+
+    .trim();
+}
+
+
+function jget(
+  key,
+  fallback={}
+){
+
+  try{
+
+    const raw=
+      localStorage.getItem(
+        key
+      );
+
+    if(raw==null)
+      return fallback;
+
+    const value=
+      JSON.parse(raw);
+
+    return value&&
+      typeof value==='object'
+        ?value
+        :fallback;
+
+  }catch(_){
+
+    return fallback;
+  }
+}
+
+
+function roomId(){
+
+  const match=
+    String(
+      location.pathname||
+      ''
+    )
+      .match(
+        /\/rooms\/([^/?#]+)/i
+      );
+
+
+  if(!match)
+    return '';
+
+
+  try{
+    return decodeURIComponent(
+      match[1]
+    );
+  }catch(_){
+    return match[1];
+  }
+}
+
+
+function plotId(
+  rid=roomId()
+){
+
+  return String(
+    jget(ROOM_KEY)
+      ?.[rid]
+      ?.plotId||
+    ''
+  );
+}
+
+
+function first(
+  obj,
+  keys,
+  fallback=''
+){
+
+  if(
+    !obj||
+    typeof obj!=='object'
+  )
+    return fallback;
+
+
+  for(
+    const key of
+    keys
+  ){
+
+    const value=
+      obj[key];
+
+    if(
+      value!==undefined&&
+      value!==null&&
+      value!==''
+    )
+      return value;
+  }
+
+
+  return fallback;
+}
+
+
+function plotRoot(
+  payload
+){
+
+  if(
+    !payload||
+    typeof payload!=='object'
+  )
+    return {};
+
+
+  if(
+    payload.plot&&
+    typeof payload.plot==='object'
+  )
+    return payload.plot;
+
+
+  if(
+    payload.data?.plot&&
+    typeof payload.data.plot===
+      'object'
+  )
+    return payload.data.plot;
+
+
+  if(
+    payload.data&&
+    typeof payload.data==='object'
+  )
+    return payload.data;
+
+
+  return payload;
+}
+
+
+/* =========================================
+   현재 캐릭터 이름 추정
+   Reading이 이미 로드한 ZetaChatDOM 이용
+========================================= */
+
+function currentCharacterName(){
+
+  const shared=
+    W.ZetaChatDOM;
+
+
+  if(
+    !shared||
+    typeof shared.extractRecords!==
+      'function'
+  )
+    return '';
+
+
+  try{
+
+    const records=
+      shared.extractRecords({
+        root:D,
+        includeStatus:false
+      })||[];
+
+
+    for(
+      let i=records.length-1;
+      i>=0;
+      i--
+    ){
+
+      const r=
+        records[i];
+
+
+      if(
+        r&&
+        r.role==='character'&&
+        clean(r.name)
+      )
+        return clean(
+          r.name
+        );
+    }
+
+  }catch(_){}
+
+
+  return '';
+}
+
+
+/* =========================================
+   Plot 캐시 → CHAR 프로필
+========================================= */
+
+function characterFromPlot(
+  payload
+){
+
+  const root=
+    plotRoot(payload);
+
+
+  let chars=
+    Array.isArray(
+      root.characters
+    )
+      ?root.characters
+      :Array.isArray(
+          root.characterList
+        )
+        ?root.characterList
+        :[];
+
+
+  if(
+    !chars.length&&
+    root.character&&
+    typeof root.character===
+      'object'
+  )
+    chars=[
+      root.character
+    ];
+
+
+  const currentName=
+    currentCharacterName();
+
+
+  let character=null;
+
+
+  if(currentName){
+
+    character=
+      chars.find(
+        x=>
+          clean(
+            first(
+              x,
+              [
+                'name',
+                'displayName',
+                'characterName'
+              ],
+              ''
+            )
+          )===
+          currentName
+      )||
+      null;
+  }
+
+
+  if(!character)
+    character=
+      chars[0]||
+      root;
+
+
+  const name=
+    clean(
+      first(
+        character,
+        [
+          'name',
+          'displayName',
+          'characterName',
+          'title'
+        ],
+        first(
+          root,
+          [
+            'name',
+            'displayName',
+            'title'
+          ],
+          ''
+        )
+      )
+    );
+
+
+  const description=
+    clean(
+      first(
+        character,
+        [
+          'description',
+          'longDescription',
+          'summary',
+          'prompt'
+        ],
+        first(
+          root,
+          [
+            'longDescription',
+            'description',
+            'summary',
+            'prompt'
+          ],
+          ''
+        )
+      )
+    );
+
 
   return{
     name,
     description,
-    text:clean(parts.join('\n\n'))
+    text:description
   };
 }
 
-function selectUser(entry){
-  entry=entry||{};
-  const profiles=Array.isArray(entry.profiles)?entry.profiles:[];
-  const connected=String(entry.connectedKey||'');
 
-  let active=profiles.find(x=>x&&x.key===connected)||null;
+/* =========================================
+   Reading USER 캐시 선택
+========================================= */
 
-  if(!active){
-    const rid=roomId();
-    const s=jget(SETTINGS_KEY)?.['room:'+rid];
-    const snap=s?.userProfileSnapshot;
-    if(snap?.description)active=snap;
-  }
+function roomSettings(
+  rid
+){
 
-  if(!active&&profiles.length===1)active=profiles[0];
+  const map=
+    jget(
+      SETTINGS_KEY
+    );
 
-  return active||null;
-}
 
-function cachedRaw(){
-  const rid=roomId(),pid=plotId(rid);
-  if(!rid||!pid)return null;
-
-  const plots=jget(PLOT_KEY);
-  const users=jget(USER_KEY);
-  const pe=plots[pid];
-  const ue=users[rid+'|'+pid];
-
-  if(!pe?.payload&&!ue)return null;
-
-  return{rid,pid,pe,ue};
-}
-
-function buildCached(allowStale=true){
-  const c=cachedRaw();
-  if(!c)return null;
-
-  const now=Date.now();
-  const plotFresh=!!(
-    c.pe?.payload&&
-    Number(c.pe.cachedAt)&&
-    now-Number(c.pe.cachedAt)<PLOT_TTL
+  return(
+    map[
+      'room:'+rid
+    ]||
+    {}
   );
-
-  const userFresh=!!(
-    c.ue&&
-    Number(c.ue.cachedAt)&&
-    now-Number(c.ue.cachedAt)<USER_TTL
-  );
-
-  if(!allowStale&&(!plotFresh||!userFresh))return null;
-
-  const u=selectUser(c.ue);
-  if(!c.pe?.payload||!u)return null;
-
-  return{
-    roomId:c.rid,
-    plotId:c.pid,
-    character:characterFromPlot(c.pe.payload),
-    user:{
-      key:String(u.key||''),
-      name:clean(u.name),
-      description:clean(u.description),
-      source:String(u.source||u.type||'')
-    },
-    cachedAt:{
-      plot:Number(c.pe.cachedAt||0),
-      user:Number(c.ue?.cachedAt||0)
-    },
-    stale:!plotFresh||!userFresh
-  };
 }
 
-function extractAuth(headers){
-  try{
-    if(!headers)return'';
 
-    if(headers instanceof Headers)
-      return headers.get('authorization')||'';
+function selectUser(
+  entry,
+  rid
+){
 
-    if(Array.isArray(headers)){
-      const x=headers.find(v=>
-        Array.isArray(v)&&String(v[0]).toLowerCase()==='authorization'
-      );
-      return x?String(x[1]||''):'';
-    }
+  entry=
+    entry&&
+    typeof entry==='object'
+      ?entry
+      :{};
 
-    for(const k of Object.keys(headers))
-      if(k.toLowerCase()==='authorization')
-        return String(headers[k]||'');
 
-  }catch{}
+  const profiles=
+    Array.isArray(
+      entry.profiles
+    )
+      ?entry.profiles
+      :[];
 
-  return'';
-}
 
-function syncSharedAuth(){
-  try{
-    const a=W.__ZETAKIT_REVIEW_ZETA_LORE_HOOK__
-      ?.state?.authHeaders?.authorization;
-    if(a)auth=String(a);
-  }catch{}
-  return auth;
-}
+  const settings=
+    roomSettings(rid);
 
-async function apiGet(url){
-  syncSharedAuth();
-  if(!auth)throw Error('Zeta 인증 헤더를 아직 확보하지 못했습니다.');
 
-  const r=await OF.call(W,url,{
-    method:'GET',
-    cache:'no-store',
-    credentials:'include',
-    headers:{
-      Accept:'application/json',
-      Authorization:auth
-    }
-  });
-
-  const t=await r.text();
-  let data=null;
-  try{data=t?JSON.parse(t):null}catch{data=t}
-
-  if(!r.ok)
-    throw Error(`Zeta API ${r.status}`);
-
-  return data;
-}
-
-async function resolvePlot(rid,pid,force){
-  let payload=null;
-  const map=jget(PLOT_KEY);
-  const old=map[pid];
-
-  if(
-    !force&&old?.payload&&
-    Date.now()-Number(old.cachedAt||0)<PLOT_TTL
-  ){
-    return old.payload;
-  }
-
-  let last;
-
-  for(const url of[
-    `${API}/v1/plots/${encodeURIComponent(pid)}/creator`,
-    `${API}/v1/plots/${encodeURIComponent(pid)}`
-  ]){
-    try{
-      payload=await apiGet(url);
-      break;
-    }catch(e){last=e}
-  }
-
-  if(!payload){
-    if(old?.payload)return old.payload;
-    throw last||Error('plot 조회 실패');
-  }
-
-  map[pid]={payload,cachedAt:Date.now()};
-  jset(PLOT_KEY,map);
-  return payload;
-}
-
-function normalizeUserProfiles(listPayload,recommended,roomPayload,plotPayload){
-  const lp=listPayload?.data||listPayload||{};
-  const rp=recommended?.data||recommended||{};
-  const list=Array.isArray(lp.userChatProfiles)?lp.userChatProfiles:[];
-
-  const profiles=list
-    .filter(x=>x&&x.id)
-    .map(x=>({
-      key:'custom:'+String(x.id),
-      type:'custom',
-      id:String(x.id),
-      label:'내 대화 프로필 · '+clean(x.name),
-      name:clean(x.name),
-      description:clean(x.description),
-      source:'custom'
-    }));
-
-  const selected=list.find(x=>x&&x.selected&&x.id);
-  let connectedKey=selected?'custom:'+String(selected.id):'';
-
-  if(rp&&Object.keys(rp).length){
-    const root=plotRoot(plotPayload);
-    const recs=
-      Array.isArray(roomPayload?.plot?.chatProfiles)
-        ?roomPayload.plot.chatProfiles:
-      Array.isArray(root.chatProfiles)
-        ?root.chatProfiles:[];
-
-    const recId=String(rp.plotChatProfileId||rp.plot_chat_profile_id||'');
-    const rec=recs.find(x=>String(x?.id||'')===recId);
-
-    const p={
-      key:'rec:'+(recId||'me'),
-      type:'recommended',
-      id:recId,
-      label:'추천 대화 프로필 · '+clean(rec?.name||''),
-      name:clean(rec?.name||rp.name||''),
-      description:clean(
-        typeof rp.description==='string'
-          ?rp.description
-          :rec?.description||''
-      ),
-      source:'recommended'
-    };
-
-    if(p.description||p.name)profiles.unshift(p);
-
-    if(!connectedKey&&rp.selected!==false&&(p.description||p.name))
-      connectedKey=p.key;
-  }
-
-  return{profiles,connectedKey,cachedAt:Date.now()};
-}
-
-async function resolveUser(rid,pid,plotPayload,roomPayload,force){
-  const map=jget(USER_KEY);
-  const key=rid+'|'+pid;
-  const old=map[key];
-
-  if(
-    !force&&old&&
-    Date.now()-Number(old.cachedAt||0)<USER_TTL&&
-    selectUser(old)
-  ){
-    return old;
-  }
-
-  let list=null,rec=null;
-
-  [list,rec]=await Promise.all([
-    apiGet(`${API}/v1/user-chat-profiles?plotId=${encodeURIComponent(pid)}`)
-      .catch(()=>null),
-    apiGet(`${API}/v1/rooms/${encodeURIComponent(rid)}/user-plot-chat-profiles/me`)
-      .catch(()=>null)
-  ]);
-
-  const result=normalizeUserProfiles(
-    list,rec,roomPayload,plotPayload
-  );
-
-  if(!selectUser(result)){
-    if(old&&selectUser(old))return old;
-    throw Error('현재 사용자 프로필을 찾지 못했습니다.');
-  }
-
-  map[key]=result;
-  jset(USER_KEY,map);
-  return result;
-}
-
-async function refresh(options={}){
-  const rid=roomId();
-  if(!rid)throw Error('Zeta 대화방에서 실행해주세요.');
-
-  let pid=plotId(rid);
-  let roomPayload=null;
-
-  syncSharedAuth();
-
-  if(!pid){
-    if(!auth){
-      const stale=buildCached(true);
-      if(stale)return stale;
-      throw Error('plotId와 인증 정보를 아직 확보하지 못했습니다.');
-    }
-
-    const rr=await apiGet(`${API}/v1/rooms/${encodeURIComponent(rid)}`);
-    roomPayload=rr?.data||rr||{};
-    pid=String(
-      roomPayload.plotId||
-      roomPayload.plot?.id||
-      roomPayload.plot?.plotId||
+  const pinnedKey=
+    String(
+      settings.userProfileKey||
       ''
     );
 
-    if(!pid)throw Error('현재 방의 plotId를 찾지 못했습니다.');
-    rememberPlot(rid,pid);
-  }
 
-  try{
-    const plotPayload=await resolvePlot(
-      rid,pid,!!options.force
+  const connectedKey=
+    String(
+      entry.connectedKey||
+      ''
     );
 
-    const userEntry=await resolveUser(
-      rid,pid,plotPayload,roomPayload,!!options.force
-    );
 
-    const u=selectUser(userEntry);
+  /*
+   * Reading에서 이 방에 직접 고정한 프로필.
+   */
+  let active=
+    pinnedKey
+      ?profiles.find(
+          x=>
+            x&&
+            String(x.key||'')===
+              pinnedKey
+        )
+      :null;
 
-    current={
-      roomId:rid,
-      plotId:pid,
-      character:characterFromPlot(plotPayload),
-      user:{
-        key:String(u?.key||''),
-        name:clean(u?.name),
-        description:clean(u?.description),
-        source:String(u?.source||u?.type||'')
-      },
-      cachedAt:{
-        plot:Date.now(),
-        user:Number(userEntry.cachedAt||Date.now())
-      },
-      stale:false
-    };
 
-    return current;
+  /*
+   * Zeta에서 현재 연결된 프로필.
+   */
+  if(!active&&connectedKey){
 
-  }catch(e){
-    const stale=buildCached(true);
-
-    if(stale){
-      stale.stale=true;
-      stale.error=String(e?.message||e);
-      current=stale;
-      return stale;
-    }
-
-    throw e;
+    active=
+      profiles.find(
+        x=>
+          x&&
+          String(x.key||'')===
+            connectedKey
+      )||
+      null;
   }
+
+
+  /*
+   * Reading이 방 설정에 snapshot을 남긴 경우.
+   */
+  if(
+    !active&&
+    settings
+      .userProfileSnapshot
+      ?.description
+  ){
+
+    active=
+      settings
+        .userProfileSnapshot;
+  }
+
+
+  if(
+    !active&&
+    profiles.length===1
+  )
+    active=
+      profiles[0];
+
+
+  return active||
+    null;
 }
 
-async function get(options={}){
-  if(!options.force){
-    const fresh=buildCached(false);
-    if(fresh){
-      current=fresh;
-      return fresh;
+
+/* =========================================
+   캐시 읽기
+========================================= */
+
+function cacheState(){
+
+  const rid=
+    roomId();
+
+  const pid=
+    plotId(rid);
+
+
+  if(
+    !rid||
+    !pid
+  )
+    return null;
+
+
+  const plotMap=
+    jget(
+      PLOT_KEY
+    );
+
+  const userMap=
+    jget(
+      USER_KEY
+    );
+
+
+  const pe=
+    plotMap[pid];
+
+  const ue=
+    userMap[
+      rid+'|'+pid
+    ];
+
+
+  const user=
+    selectUser(
+      ue,
+      rid
+    );
+
+
+  return{
+    rid,
+    pid,
+    pe,
+    ue,
+    user
+  };
+}
+
+
+function fromCache(
+  requireFresh=false
+){
+
+  const c=
+    cacheState();
+
+
+  if(
+    !c||
+    !c.pe?.payload||
+    !c.user
+  )
+    return null;
+
+
+  const now=
+    Date.now();
+
+
+  const plotFresh=
+    !!(
+      Number(
+        c.pe.cachedAt
+      )&&
+      now-
+        Number(
+          c.pe.cachedAt
+        )<
+        PLOT_TTL
+    );
+
+
+  const userFresh=
+    !!(
+      Number(
+        c.ue?.cachedAt
+      )&&
+      now-
+        Number(
+          c.ue.cachedAt
+        )<
+        USER_TTL
+    );
+
+
+  if(
+    requireFresh&&
+    (
+      !plotFresh||
+      !userFresh
+    )
+  )
+    return null;
+
+
+  return{
+
+    roomId:c.rid,
+
+    plotId:c.pid,
+
+    character:
+      characterFromPlot(
+        c.pe.payload
+      ),
+
+    user:{
+      key:String(
+        c.user.key||
+        ''
+      ),
+      name:clean(
+        c.user.name
+      ),
+      description:
+        clean(
+          c.user.description
+        ),
+      source:String(
+        c.user.source||
+        c.user.type||
+        ''
+      )
+    },
+
+    cachedAt:{
+      plot:Number(
+        c.pe.cachedAt||
+        0
+      ),
+      user:Number(
+        c.ue?.cachedAt||
+        0
+      )
+    },
+
+    stale:
+      !plotFresh||
+      !userFresh
+  };
+}
+
+
+/* =========================================
+   ★ 핵심
+   Reading 자체에게 캐시 갱신을 요청
+========================================= */
+
+function readingShadow(){
+
+  const host=
+    D.getElementById(
+      READING_HOST
+    );
+
+
+  return host
+    ?.shadowRoot||
+    null;
+}
+
+
+async function waitForReading(
+  timeout=3500
+){
+
+  const started=
+    Date.now();
+
+
+  while(
+    Date.now()-started<
+    timeout
+  ){
+
+    const shadow=
+      readingShadow();
+
+
+    if(shadow)
+      return shadow;
+
+
+    await sleep(100);
+  }
+
+
+  return null;
+}
+
+
+async function refreshViaReading(){
+
+  const shadow=
+    await waitForReading();
+
+
+  if(!shadow)
+    return null;
+
+
+  const before=
+    cacheState();
+
+
+  const beforeUserAt=
+    Number(
+      before
+        ?.ue
+        ?.cachedAt||
+      0
+    );
+
+
+  /*
+   * Reading의 "현재 방 확인".
+   *
+   * 모달이 닫혀 있어도 click listener 자체는
+   * loadContext()를 실행한다.
+   */
+  const refresh=
+    shadow.querySelector(
+      '[data-refresh]'
+    );
+
+
+  if(refresh){
+
+    try{
+      refresh.click();
+    }catch(_){}
+  }
+
+
+  /*
+   * room/plot 판별 시간을 조금 준 뒤
+   * USER 프로필은 강제 새로고침.
+   */
+  await sleep(350);
+
+
+  const refreshUser=
+    shadow.querySelector(
+      '[data-refresh-user-profile]'
+    );
+
+
+  if(refreshUser){
+
+    try{
+      refreshUser.click();
+    }catch(_){}
+  }
+
+
+  const started=
+    Date.now();
+
+
+  while(
+    Date.now()-started<
+    7000
+  ){
+
+    const state=
+      cacheState();
+
+
+    const p=
+      fromCache(false);
+
+
+    if(p){
+
+      const userAt=
+        Number(
+          state
+            ?.ue
+            ?.cachedAt||
+          0
+        );
+
+
+      /*
+       * 새 user cache가 저장됐거나,
+       * 기존 cache라도 완전한 프로필이 있으면 사용.
+       */
+      if(
+        userAt>
+          beforeUserAt||
+        (
+          p.character
+            ?.description&&
+          p.user
+            ?.description
+        )
+      ){
+
+        return p;
+      }
+    }
+
+
+    await sleep(120);
+  }
+
+
+  /*
+   * Reading 갱신이 늦거나 실패했더라도
+   * 기존 유효 캐시가 있으면 사용.
+   */
+  return fromCache(
+    false
+  );
+}
+
+
+/* =========================================
+   공용 get / prepare
+========================================= */
+
+async function get(
+  options={}
+){
+
+  if(
+    !options.force
+  ){
+
+    const cached=
+      fromCache(
+        true
+      );
+
+
+    if(cached){
+
+      current=
+        cached;
+
+      return cached;
     }
   }
 
-  if(running)return running;
 
-  running=refresh(options).finally(()=>running=null);
+  if(running)
+    return running;
+
+
+  running=
+    (async()=>{
+
+      let p=
+        await refreshViaReading();
+
+
+      if(!p)
+        p=
+          fromCache(
+            false
+          );
+
+
+      if(!p){
+
+        throw Error(
+          'Reading 프로필 캐시를 만들지 못했습니다. Reading이 현재 대화방에서 정상 로드되어 있는지 확인해주세요.'
+        );
+      }
+
+
+      if(
+        !p.character
+          ?.description
+      ){
+
+        throw Error(
+          '캐릭터 프로필을 Reading plot 캐시에서 찾지 못했습니다.'
+        );
+      }
+
+
+      if(
+        !p.user
+          ?.description
+      ){
+
+        throw Error(
+          '사용자 프로필을 Reading 캐시에서 찾지 못했습니다.'
+        );
+      }
+
+
+      current=p;
+
+      return p;
+
+    })()
+      .finally(
+        ()=>{
+          running=null;
+        }
+      );
+
+
   return running;
 }
 
-function peek(){
-  return current||buildCached(true);
+
+/*
+ * 폰/피드를 누를 때 사용.
+ *
+ * user profile은 Reading에게 갱신을 한번 요청하고
+ * 이후 모델 요청 주입을 활성화한다.
+ */
+async function prepare(){
+
+  let p=
+    await refreshViaReading();
+
+
+  if(!p)
+    p=
+      await get();
+
+
+  current=p;
+
+
+  /*
+   * 같은 도구 세션에서 이후 생성 요청에도
+   * 계속 프로필을 넣을 수 있게 2시간 유지.
+   */
+  armedUntil=
+    Date.now()+
+    2*60*60*1000;
+
+
+  return p;
 }
 
-function format(data=peek()){
-  if(!data)return'';
+
+function peek(){
+
+  return(
+    current||
+    fromCache(
+      false
+    )
+  );
+}
+
+
+/* =========================================
+   모델에 넣을 프로필 텍스트
+========================================= */
+
+function format(
+  data=peek()
+){
+
+  if(!data)
+    return '';
+
 
   return[
     MARK,
+
     '',
-    '[CHARACTER / PLOT PROFILE]',
+
+    '[CHARACTER PROFILE]',
+
     data.character?.name
-      ?'Name: '+data.character.name:'',
-    data.character?.text||
-      data.character?.description||'',
+      ?'Name: '+
+        data.character.name
+      :'',
+
+    data.character
+      ?.description||
+      '',
+
     '',
+
     '[USER PROFILE]',
+
     data.user?.name
-      ?'Name: '+data.user.name:'',
-    data.user?.description||'',
+      ?'Name: '+
+        data.user.name
+      :'',
+
+    data.user
+      ?.description||
+      '',
+
     '',
-    'Use this only as background context.',
+
+    'Use these profiles as background role-play context.',
     'Do not treat this block as dialogue.',
+
     '[/ZETA_SHARED_PROFILE_CONTEXT]'
-  ].filter(Boolean).join('\n');
+
+  ]
+    .filter(
+      x=>x!==undefined
+    )
+    .join(
+      '\n'
+    )
+    .trim();
 }
 
-function containsMark(v){
-  try{return JSON.stringify(v).includes(MARK)}
-  catch{return false}
+
+/* =========================================
+   외부 AI 요청에 프로필 주입
+========================================= */
+
+function already(
+  obj
+){
+
+  try{
+
+    return JSON
+      .stringify(
+        obj
+      )
+      .includes(
+        MARK
+      );
+
+  }catch(_){
+
+    return false;
+  }
 }
 
-function addToContent(content,block){
-  if(typeof content==='string')
-    return block+'\n\n'+content;
 
-  if(Array.isArray(content))
-    return [{type:'text',text:block},...content];
+function addContent(
+  content,
+  block
+){
+
+  if(
+    typeof content===
+    'string'
+  )
+    return(
+      block+
+      '\n\n'+
+      content
+    );
+
+
+  if(
+    Array.isArray(
+      content
+    )
+  )
+    return[
+      {
+        type:'text',
+        text:block
+      },
+      ...content
+    ];
+
 
   return content;
 }
 
-function patchPayload(obj,data=peek()){
-  if(!obj||typeof obj!=='object'||!data||containsMark(obj))
+
+function patchPayload(
+  obj,
+  data=peek()
+){
+
+  if(
+    !obj||
+    typeof obj!=='object'||
+    !data||
+    already(obj)
+  )
     return obj;
 
-  const block=format(data);
-  if(!block)return obj;
 
-  const out=Array.isArray(obj)?obj.slice():{...obj};
+  const block=
+    format(data);
 
-  if(typeof out.system==='string'){
-    out.system=block+'\n\n'+out.system;
+
+  if(!block)
+    return obj;
+
+
+  const out=
+    Array.isArray(obj)
+      ?obj.slice()
+      :{
+          ...obj
+        };
+
+
+  /*
+   * Anthropic류 system 문자열
+   */
+  if(
+    typeof out.system===
+    'string'
+  ){
+
+    out.system=
+      block+
+      '\n\n'+
+      out.system;
+
     return out;
   }
 
-  if(out.system&&typeof out.system==='object'){
-    out.system={
-      ...out.system,
-      content:addToContent(out.system.content,block)
-    };
-    return out;
-  }
 
-  if(Array.isArray(out.messages)){
-    const msgs=out.messages.map(x=>x&&typeof x==='object'?{...x}:x);
-    const i=msgs.findIndex(x=>
-      x&&/^(system|developer)$/i.test(String(x.role||''))
-    );
+  /*
+   * OpenAI / OpenRouter messages
+   */
+  if(
+    Array.isArray(
+      out.messages
+    )
+  ){
+
+    const messages=
+      out.messages.map(
+        m=>
+          m&&
+          typeof m==='object'
+            ?{...m}
+            :m
+      );
+
+
+    const i=
+      messages.findIndex(
+        m=>
+          m&&
+          /^(system|developer)$/i
+            .test(
+              String(
+                m.role||
+                ''
+              )
+            )
+      );
+
 
     if(i>=0){
-      msgs[i]={
-        ...msgs[i],
-        content:addToContent(msgs[i].content,block)
+
+      messages[i]={
+        ...messages[i],
+
+        content:
+          addContent(
+            messages[i].content,
+            block
+          )
       };
+
     }else{
-      msgs.unshift({role:'system',content:block});
+
+      messages.unshift(
+        {
+          role:'system',
+          content:block
+        }
+      );
     }
 
-    out.messages=msgs;
+
+    out.messages=
+      messages;
+
+
     return out;
   }
 
-  if(typeof out.prompt==='string'){
-    out.prompt=block+'\n\n'+out.prompt;
+
+  /*
+   * 단일 prompt
+   */
+  if(
+    typeof out.prompt===
+    'string'
+  ){
+
+    out.prompt=
+      block+
+      '\n\n'+
+      out.prompt;
+
     return out;
   }
 
-  if(typeof out.input==='string'){
-    out.input=block+'\n\n'+out.input;
+
+  /*
+   * Responses API류
+   */
+  if(
+    typeof out.input===
+    'string'
+  ){
+
+    out.input=
+      block+
+      '\n\n'+
+      out.input;
+
     return out;
   }
 
-  if(Array.isArray(out.input)){
+
+  if(
+    Array.isArray(
+      out.input
+    )
+  ){
+
     out.input=[
-      {role:'system',content:block},
+      {
+        role:'system',
+        content:block
+      },
       ...out.input
     ];
+
     return out;
   }
 
-  if(Array.isArray(out.contents)){
-    const old=out.system_instruction||out.systemInstruction;
-    const si={
+
+  /*
+   * Gemini contents
+   */
+  if(
+    Array.isArray(
+      out.contents
+    )
+  ){
+
+    const old=
+      out.system_instruction||
+      out.systemInstruction;
+
+
+    const value={
+
       parts:[
-        {text:block},
+        {
+          text:block
+        },
+
         ...(
-          Array.isArray(old?.parts)
-            ?old.parts:[]
+          Array.isArray(
+            old?.parts
+          )
+            ?old.parts
+            :[]
         )
       ]
+
     };
 
-    if(out.system_instruction!==undefined)
-      out.system_instruction=si;
+
+    if(
+      out.system_instruction!==
+      undefined
+    )
+      out.system_instruction=
+        value;
     else
-      out.systemInstruction=si;
+      out.systemInstruction=
+        value;
+
 
     return out;
   }
+
 
   return out;
 }
 
-function shouldPatch(url,obj,stack){
-  if(!obj||typeof obj!=='object')return false;
 
-  const u=String(url||'');
-  if(/(?:^|\.)zeta-ai\.io/i.test(u))return false;
-  if(/zreading\.pages\.dev/i.test(String(stack||'')))return false;
+function shouldPatch(
+  url,
+  obj,
+  stack=''
+){
+
+  if(
+    Date.now()>
+    armedUntil
+  )
+    return false;
+
+
+  if(
+    !obj||
+    typeof obj!=='object'
+  )
+    return false;
+
+
+  const u=
+    String(
+      url||
+      ''
+    );
+
+
+  /*
+   * Zeta 자체 API에는 절대 넣지 않음.
+   */
+  if(
+    /api\.zeta-ai\.io/i
+      .test(u)||
+    /^\/v1\//i
+      .test(u)
+  )
+    return false;
+
+
+  /*
+   * Reading 자체 생성 요청에도 중복 삽입 금지.
+   */
+  if(
+    /zreading\.pages\.dev|reading\.js/i
+      .test(
+        String(stack||'')
+      )
+  )
+    return false;
+
 
   return !!(
     obj.model||
-    Array.isArray(obj.messages)||
-    typeof obj.prompt==='string'||
-    typeof obj.input==='string'||
-    Array.isArray(obj.input)
+    Array.isArray(
+      obj.messages
+    )||
+    typeof obj.prompt===
+      'string'||
+    typeof obj.input===
+      'string'||
+    Array.isArray(
+      obj.input
+    )||
+    Array.isArray(
+      obj.contents
+    )
   );
 }
 
-async function patchBody(url,body,stack){
-  if(typeof body!=='string')return body;
 
-  let obj;
-  try{obj=JSON.parse(body)}catch{return body}
-
-  if(!shouldPatch(url,obj,stack))return body;
-
-  let data=peek();
-
-  if(!data){
-    try{data=await get()}catch(e){
-      console.warn('[ZETA Profile] context unavailable',e);
-      return body;
-    }
-  }
-
-  const patched=patchPayload(obj,data);
-
-  try{return JSON.stringify(patched)}
-  catch{return body}
-}
-
-async function fetchHook(input,init){
-  const stack=String(new Error().stack||'');
-  let url=typeof input==='string'?input:input?.url||'';
-
-  try{
-    const zeta=/https:\/\/api\.zeta-ai\.io/i.test(url);
-
-    if(zeta){
-      auth=
-        extractAuth(init?.headers)||
-        extractAuth(input?.headers)||
-        auth;
-    }
-
-    if(init&&typeof init.body==='string'){
-      const body=await patchBody(url,init.body,stack);
-
-      if(body!==init.body)
-        init={...init,body};
-    }
-    else if(input instanceof Request){
-      const method=String(init?.method||input.method||'GET').toUpperCase();
-
-      if(method!=='GET'&&method!=='HEAD'&&!(init&&init.body)){
-        const original=await input.clone().text();
-        const body=await patchBody(url,original,stack);
-
-        if(body!==original)
-          input=new Request(input,{...(init||{}),body});
-      }
-    }
-  }catch(e){
-    console.warn('[ZETA Profile] fetch patch error',e);
-  }
-
-  return OF.call(this,input,init);
-}
-
-function xhrOpen(method,url){
-  xhrMeta.set(this,{
-    method:String(method||'GET'),
-    url:String(url||''),
-    headers:{}
-  });
-
-  return OO.apply(this,arguments);
-}
-
-function xhrHeader(name,value){
-  const m=xhrMeta.get(this);
-
-  if(m){
-    m.headers[String(name||'').toLowerCase()]=String(value||'');
-
-    if(
-      /api\.zeta-ai\.io/i.test(m.url)&&
-      String(name||'').toLowerCase()==='authorization'
-    ){
-      auth=String(value||'')||auth;
-    }
-  }
-
-  return OH.apply(this,arguments);
-}
-
-function xhrSend(body){
-  const m=xhrMeta.get(this)||{};
-  const data=peek();
+async function patchBody(
+  url,
+  body,
+  stack
+){
 
   if(
-    data&&
-    typeof body==='string'&&
-    !/api\.zeta-ai\.io/i.test(m.url)
-  ){
-    try{
-      const obj=JSON.parse(body);
+    typeof body!==
+    'string'
+  )
+    return body;
 
-      if(shouldPatch(m.url,obj,'xhr'))
-        body=JSON.stringify(
-          patchPayload(obj,data)
-        );
-    }catch{}
+
+  let obj;
+
+
+  try{
+    obj=
+      JSON.parse(
+        body
+      );
+  }catch(_){
+    return body;
   }
 
-  return OS.call(this,body);
+
+  if(
+    !shouldPatch(
+      url,
+      obj,
+      stack
+    )
+  )
+    return body;
+
+
+  const data=
+    peek();
+
+
+  if(!data)
+    return body;
+
+
+  try{
+
+    return JSON.stringify(
+      patchPayload(
+        obj,
+        data
+      )
+    );
+
+  }catch(_){
+
+    return body;
+  }
 }
+
+
+/* =========================================
+   fetch hook
+========================================= */
+
+async function fetchHook(
+  input,
+  init
+){
+
+  const stack=
+    String(
+      new Error().stack||
+      ''
+    );
+
+
+  const url=
+    typeof input===
+      'string'
+      ?input
+      :input?.url||
+       '';
+
+
+  try{
+
+    if(
+      init&&
+      typeof init.body===
+        'string'
+    ){
+
+      const body=
+        await patchBody(
+          url,
+          init.body,
+          stack
+        );
+
+
+      if(
+        body!==
+        init.body
+      ){
+
+        init={
+          ...init,
+          body
+        };
+      }
+
+    }else if(
+      input instanceof Request
+    ){
+
+      const method=
+        String(
+          init?.method||
+          input.method||
+          'GET'
+        )
+          .toUpperCase();
+
+
+      if(
+        method!=='GET'&&
+        method!=='HEAD'&&
+        !(init&&init.body)
+      ){
+
+        const original=
+          await input
+            .clone()
+            .text();
+
+
+        const body=
+          await patchBody(
+            url,
+            original,
+            stack
+          );
+
+
+        if(
+          body!==
+          original
+        ){
+
+          input=
+            new Request(
+              input,
+              {
+                ...(init||{}),
+                body
+              }
+            );
+        }
+      }
+    }
+
+  }catch(e){
+
+    console.warn(
+      '[ZETA Profile fetch]',
+      e
+    );
+  }
+
+
+  return OF.call(
+    this,
+    input,
+    init
+  );
+}
+
+
+/* =========================================
+   XHR hook
+========================================= */
+
+function xhrOpen(
+  method,
+  url
+){
+
+  this.__zetaProfileUrl=
+    String(
+      url||
+      ''
+    );
+
+
+  return OO.apply(
+    this,
+    arguments
+  );
+}
+
+
+function xhrSend(
+  body
+){
+
+  const url=
+    String(
+      this.__zetaProfileUrl||
+      ''
+    );
+
+
+  if(
+    typeof body===
+      'string'&&
+    Date.now()<
+      armedUntil
+  ){
+
+    try{
+
+      const obj=
+        JSON.parse(
+          body
+        );
+
+
+      if(
+        shouldPatch(
+          url,
+          obj,
+          'xhr'
+        )
+      ){
+
+        body=
+          JSON.stringify(
+            patchPayload(
+              obj,
+              peek()
+            )
+          );
+      }
+
+    }catch(_){}
+  }
+
+
+  return OS.call(
+    this,
+    body
+  );
+}
+
+
+/* =========================================
+   설치 / 해제
+========================================= */
 
 function install(){
-  W.fetch=fetchHook;
-  X.open=xhrOpen;
-  X.setRequestHeader=xhrHeader;
-  X.send=xhrSend;
+
+  W.fetch=
+    fetchHook;
+
+  X.open=
+    xhrOpen;
+
+  X.send=
+    xhrSend;
 }
+
 
 function destroy(){
-  if(W.fetch===fetchHook)W.fetch=OF;
-  if(X.open===xhrOpen)X.open=OO;
-  if(X.setRequestHeader===xhrHeader)X.setRequestHeader=OH;
-  if(X.send===xhrSend)X.send=OS;
 
-  try{delete W[K]}catch{W[K]=null}
+  if(
+    W.fetch===
+    fetchHook
+  )
+    W.fetch=
+      OF;
+
+
+  if(
+    X.open===
+    xhrOpen
+  )
+    X.open=
+      OO;
+
+
+  if(
+    X.send===
+    xhrSend
+  )
+    X.send=
+      OS;
+
+
+  try{
+    delete W[K];
+  }catch(_){
+    W[K]=null;
+  }
 }
 
+
+/* =========================================
+   확인용
+========================================= */
+
 async function test(){
-  const p=await get();
+
+  const p=
+    await prepare();
+
+
+  console.log(
+    '[ZETA PROFILE]',
+    p
+  );
+
 
   alert(
     '프로필 준비 완료\n\n'+
-    `CHAR: ${p.character?.name||'-'}\n`+
-    `USER: ${p.user?.name||'-'}\n`+
-    `CACHE: ${p.stale?'stale':'fresh'}`
+    'CHAR: '+
+    (
+      p.character
+        ?.name||
+      '-'
+    )+
+    '\nUSER: '+
+    (
+      p.user
+        ?.name||
+      '-'
+    )+
+    '\n\nv2.1'
   );
 
-  console.log('[ZETA PROFILE]',p);
+
   return p;
 }
 
-syncSharedAuth();
+
+/* =========================================
+   시작
+========================================= */
+
 install();
 
-current=buildCached(true);
+
+current=
+  fromCache(
+    false
+  );
+
 
 W[K]={
+
   get,
+
+  prepare,
+
   peek,
-  refresh:()=>get({force:true}),
-  prepare:get,
+
   format,
+
   patchPayload,
+
   test,
+
   destroy,
-  version:'2.0'
+
+  version:'2.1'
+
 };
 
-console.log('[ZETA Profile] v2.0 ready',current||'no cache');
+
+console.log(
+  '[ZETA Profile] v2.1 ready',
+  current||
+  'waiting for Reading cache'
+);
 
 })();
