@@ -611,9 +611,452 @@ async function refreshRouter(){
 ========================================= */
 
 function kit(){
-
   hide();
 
+  /* =========================================
+     ZETA Kit API provider 저장 버그 보정
+  ========================================= */
+
+  const FIX_KEY='__ZETA_KIT_PROVIDER_FIX_V1__';
+  const PROFILE_KEY='ZETAKIT_REVIEW_API_PROFILES';
+
+  if(!window[FIX_KEY]){
+
+    const SP=Storage.prototype;
+    const originalSetItem=SP.setItem;
+
+    const validProviders=new Set([
+      'openai',
+      'openrouter',
+      'gemini',
+      'claude',
+      'custom'
+    ]);
+
+
+    function normalizeProvider(value){
+
+      const v=String(value||'')
+        .trim()
+        .toLowerCase();
+
+
+      if(!v)
+        return '';
+
+
+      if(
+        v==='gemini'||
+        v==='google'||
+        v==='google-gemini'||
+        v==='google-vertex'||
+        v==='vertex'||
+        v.includes('gemini')||
+        v.includes('vertex')
+      ){
+        return 'gemini';
+      }
+
+
+      if(
+        v==='claude'||
+        v==='anthropic'||
+        v.includes('claude')||
+        v.includes('anthropic')
+      ){
+        return 'claude';
+      }
+
+
+      if(
+        v==='openrouter'||
+        v==='open-router'||
+        v.includes('openrouter')
+      ){
+        return 'openrouter';
+      }
+
+
+      if(
+        v==='openai'||
+        v==='open-ai'
+      ){
+        return 'openai';
+      }
+
+
+      if(
+        v==='custom'||
+        v.includes('compatible')||
+        v.includes('compat')
+      ){
+        return 'custom';
+      }
+
+
+      return '';
+    }
+
+
+    function inferProvider(profile){
+
+      const url=String(
+        profile?.url||
+        profile?.apiUrl||
+        profile?.baseUrl||
+        profile?.endpoint||
+        ''
+      ).toLowerCase();
+
+
+      const model=String(
+        profile?.model||
+        profile?.modelId||
+        ''
+      ).toLowerCase();
+
+
+      const text=url+' '+model;
+
+
+      /* Gemini / Google Vertex */
+      if(
+        text.includes('gemini')||
+        url.includes('aiplatform.googleapis.com')||
+        url.includes('generativelanguage.googleapis.com')
+      ){
+        return 'gemini';
+      }
+
+
+      /* Claude */
+      if(
+        text.includes('claude')||
+        url.includes('anthropic.com')
+      ){
+        return 'claude';
+      }
+
+
+      /* OpenRouter */
+      if(
+        url.includes('openrouter.ai')
+      ){
+        return 'openrouter';
+      }
+
+
+      /* OpenAI */
+      if(
+        url.includes('api.openai.com')
+      ){
+        return 'openai';
+      }
+
+
+      /*
+       * URL은 있는데 알려진 공식 API가 아니면
+       * OpenAI 호환 직접입력으로 보정
+       */
+      if(url)
+        return 'custom';
+
+
+      return '';
+    }
+
+
+    function readProfiles(){
+
+      try{
+
+        const raw=
+          localStorage.getItem(
+            PROFILE_KEY
+          );
+
+
+        if(!raw)
+          return [];
+
+
+        const list=
+          JSON.parse(raw);
+
+
+        return Array.isArray(list)
+          ?list
+          :[];
+
+      }catch(_){
+
+        return [];
+      }
+    }
+
+
+    function repairRaw(raw){
+
+      let next;
+
+
+      try{
+
+        next=
+          JSON.parse(
+            String(raw||'')
+          );
+
+      }catch(_){
+
+        return raw;
+      }
+
+
+      if(!Array.isArray(next))
+        return raw;
+
+
+      /*
+       * 저장 직전의 기존 프로필도 참고.
+       * 같은 ID 프로필에 provider가 있었다면
+       * 그 값을 최우선 보존한다.
+       */
+      const previous=
+        readProfiles();
+
+
+      const oldById=
+        new Map(
+          previous
+            .filter(
+              p=>p&&p.id!=null
+            )
+            .map(
+              p=>[
+                String(p.id),
+                p
+              ]
+            )
+        );
+
+
+      let changed=false;
+
+
+      next=
+        next.map(profile=>{
+
+          if(
+            !profile||
+            typeof profile!=='object'
+          ){
+            return profile;
+          }
+
+
+          let provider=
+            normalizeProvider(
+              profile.provider
+            );
+
+
+          /*
+           * 새로 저장된 객체에서 provider가 빠졌다면
+           * 같은 프로필의 이전 값 복구
+           */
+          if(
+            !validProviders.has(
+              provider
+            )
+          ){
+
+            const old=
+              profile.id!=null
+                ?oldById.get(
+                    String(profile.id)
+                  )
+                :null;
+
+
+            provider=
+              normalizeProvider(
+                old?.provider
+              );
+          }
+
+
+          /*
+           * 이전 값도 없으면 URL/모델로 판별
+           */
+          if(
+            !validProviders.has(
+              provider
+            )
+          ){
+
+            provider=
+              inferProvider(
+                profile
+              );
+          }
+
+
+          if(
+            provider&&
+            profile.provider!==provider
+          ){
+
+            changed=true;
+
+
+            return{
+              ...profile,
+              provider
+            };
+          }
+
+
+          return profile;
+        });
+
+
+      return changed
+        ?JSON.stringify(next)
+        :raw;
+    }
+
+
+    function repairStoredProfiles(){
+
+      try{
+
+        const raw=
+          localStorage.getItem(
+            PROFILE_KEY
+          );
+
+
+        if(!raw)
+          return false;
+
+
+        const fixed=
+          repairRaw(raw);
+
+
+        if(fixed!==raw){
+
+          originalSetItem.call(
+            localStorage,
+            PROFILE_KEY,
+            fixed
+          );
+
+
+          console.log(
+            '[ZETA Kit] API 종류 저장값 복구 완료'
+          );
+
+
+          return true;
+        }
+
+      }catch(e){
+
+        console.warn(
+          '[ZETA Kit provider repair]',
+          e
+        );
+      }
+
+
+      return false;
+    }
+
+
+    /*
+     * 키트가 프로필을 저장하는 바로 그 순간만 감시.
+     * 다른 localStorage 데이터에는 손대지 않음.
+     */
+    SP.setItem=function(
+      key,
+      value
+    ){
+
+      if(
+        this===localStorage&&
+        String(key)===PROFILE_KEY&&
+        typeof value==='string'
+      ){
+
+        try{
+
+          value=
+            repairRaw(value);
+
+        }catch(e){
+
+          console.warn(
+            '[ZETA Kit provider save fix]',
+            e
+          );
+        }
+      }
+
+
+      return originalSetItem.call(
+        this,
+        key,
+        value
+      );
+    };
+
+
+    window[FIX_KEY]={
+
+      repair:
+        repairStoredProfiles,
+
+      destroy(){
+
+        if(
+          SP.setItem&&
+          SP.setItem!==originalSetItem
+        ){
+          SP.setItem=
+            originalSetItem;
+        }
+
+
+        try{
+          delete window[FIX_KEY];
+        }catch(_){
+          window[FIX_KEY]=null;
+        }
+      },
+
+      version:'1.0'
+    };
+
+
+    /*
+     * 이미 깨져서 저장된 기존 프로필도
+     * 키트 열기 전에 바로 고친다.
+     */
+    repairStoredProfiles();
+
+  }else{
+
+    try{
+      window[FIX_KEY].repair?.();
+    }catch(_){}
+  }
+
+
+  /* =========================================
+     기존 키트 실행
+  ========================================= */
 
   document
     .querySelectorAll(
@@ -631,6 +1074,7 @@ function kit(){
 
 
   s.dataset.zetaToolboxKit='1';
+
 
   s.src=
     'https://zetakit.pages.dev/run.js?cb='+
@@ -654,7 +1098,6 @@ function kit(){
   )
     .appendChild(s);
 }
-
 
 /* =========================================
    피드
