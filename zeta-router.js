@@ -292,46 +292,7 @@
     }
 
 
-    /*
-     * ==========================================================
-     * JSON.stringify
-     * ==========================================================
-     */
-
-    JSON.stringify = function(value, replacer, space) {
-
-        try {
-
-            const r = patchObject(value);
-
-            if (r.changed) {
-
-                return OJ.call(
-                    JSON,
-                    r.value,
-                    replacer,
-                    space
-                );
-            }
-
-        } catch (e) {
-
-            console.warn(
-                '[ZETA Router] stringify error',
-                e
-            );
-        }
-
-
-        return OJ.call(
-            JSON,
-            value,
-            replacer,
-            space
-        );
-    };
-
-
+    
     /*
      * ==========================================================
      * fetch
