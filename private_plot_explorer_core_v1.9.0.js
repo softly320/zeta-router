@@ -11,7 +11,7 @@
 
   const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   const API = 'https://api.zeta-ai.io';
-  const CORE_VERSION = '1.9.0';
+  const CORE_VERSION = '1.11.0';
   const UI_ID = 'zeta-private-plot-explorer-v1';
   const STATE_KEY = 'zeta_private_plot_explorer_state_v1';
   const POS_KEY = 'zeta_private_plot_explorer_pos_v1';
@@ -693,6 +693,171 @@
     };
   }
 
+
+
+  function sanitizeExportValue(value, depth = 0) {
+    if (depth > 12) return '[max-depth]';
+    if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      if (/^data:[^;]+;base64,/i.test(value) && value.length > 4096) {
+        return `[base64 omitted · ${value.length} chars]`;
+      }
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map(v => sanitizeExportValue(v, depth + 1));
+    }
+    if (typeof value === 'object') {
+      const out = {};
+      for (const [key, val] of Object.entries(value)) {
+        if (/authorization|cookie|token|secret|password|session/i.test(key)) continue;
+        if (typeof val === 'function' || typeof val === 'symbol' || typeof val === 'undefined') continue;
+        out[key] = sanitizeExportValue(val, depth + 1);
+      }
+      return out;
+    }
+    return String(value);
+  }
+
+  function flattenForAI(value, prefix = '', out = [], depth = 0) {
+    if (depth > 8 || value == null) return out;
+
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      const text = String(value).trim();
+      if (text) out.push(`${prefix || 'value'}: ${text}`);
+      return out;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        flattenForAI(item, `${prefix || 'item'}[${index + 1}]`, out, depth + 1);
+      });
+      return out;
+    }
+
+    if (typeof value === 'object') {
+      for (const [key, val] of Object.entries(value)) {
+        if (/authorization|cookie|token|secret|password|session/i.test(key)) continue;
+        if (/^(id|createdAt|updatedAt|modifiedAt|originatedId|status|isPrivate|interactionCount)$/i.test(key)) continue;
+        const next = prefix ? `${prefix}.${key}` : key;
+        flattenForAI(val, next, out, depth + 1);
+      }
+    }
+
+    return out;
+  }
+
+  function getFieldInventory(p) {
+    const topLevelKeys = Object.keys(p || {}).sort();
+    const characterKeys = [...new Set(
+      (Array.isArray(p?.characters) ? p.characters : [])
+        .flatMap(c => (c && typeof c === 'object' ? Object.keys(c) : []))
+    )].sort();
+    const conversationKeys = [...new Set(
+      (Array.isArray(p?.conversations) ? p.conversations : [])
+        .flatMap(c => (c && typeof c === 'object' ? Object.keys(c) : []))
+    )].sort();
+
+    return { topLevelKeys, characterKeys, conversationKeys };
+  }
+
+  function buildAISource(p) {
+    const characters = Array.isArray(p?.characters) ? p.characters : [];
+    const characterLines = [];
+    characters.forEach((character, index) => {
+      flattenForAI(character, `character[${index + 1}]`, characterLines);
+    });
+
+    const extraPlot = {};
+    const skip = new Set([
+      'id', 'originatedId', 'status', 'isPrivate', 'createdAt', 'updatedAt', 'modifiedAt',
+      'interactionCount', 'creator', 'characters', 'conversations', 'name',
+      'shortDescription', 'longDescription', 'creatorComment'
+    ]);
+    for (const [key, val] of Object.entries(p || {})) {
+      if (skip.has(key)) continue;
+      extraPlot[key] = val;
+    }
+    const extraLines = [];
+    flattenForAI(extraPlot, 'plotExtra', extraLines);
+
+    const sections = [
+      ['플롯 제목', String(p?.name || '')],
+      ['짧은 소개', String(p?.shortDescription || '')],
+      ['플롯 상세', String(p?.longDescription || '')],
+      ['크리에이터 코멘트', String(p?.creatorComment || '')],
+      ['캐릭터 정보', characterLines.join('\n')],
+      ['추가 플롯 정보', extraLines.join('\n')],
+      ['대화/샘플 텍스트', getConversationText(p)]
+    ];
+
+    const fullText = sections
+      .filter(([, text]) => String(text || '').trim())
+      .map(([label, text]) => `## ${label}\n${String(text).trim()}`)
+      .join('\n\n');
+
+    return {
+      purpose: 'Vertex AI character trait summary and categorization source',
+      title: String(p?.name || ''),
+      shortDescription: String(p?.shortDescription || ''),
+      longDescription: String(p?.longDescription || ''),
+      creatorComment: String(p?.creatorComment || ''),
+      characterNames: (Array.isArray(p?.characters) ? p.characters : [])
+        .map(c => String(c?.name || '').trim())
+        .filter(Boolean),
+      characterInfo: sanitizeExportValue(characters),
+      conversationText: getConversationText(p),
+      additionalPlotInfo: sanitizeExportValue(extraPlot),
+      fullText
+    };
+  }
+
+
+  function buildPersonalExportPayload() {
+    const plots = allPlots
+      .filter(p => p && p.status !== 'DELETED' && p.status !== 'PRERELEASE' && p.isPrivate === true && p.originatedId == null)
+      .map(p => ({
+        privatePlotId: String(p.id),
+        privateProfileUrl: `${location.origin}/ko/plots/${encodeURIComponent(p.id)}/profile`,
+        sourceType: 'PERSONAL',
+        originatedPlotId: null,
+
+        title: String(p.name || ''),
+        creatorNickname: String(p?.creator?.nickname || ''),
+        creatorUsername: String(p?.creator?.username || ''),
+        characterNames: (Array.isArray(p?.characters) ? p.characters : [])
+          .map(c => String(c?.name || '').trim())
+          .filter(Boolean),
+        interactionCount: Number(p?.interactionCount || 0),
+
+        shortDescription: String(p?.shortDescription || ''),
+        longDescription: String(p?.longDescription || ''),
+        creatorComment: String(p?.creatorComment || ''),
+        conversationText: getConversationText(p),
+
+        characterInfo: sanitizeExportValue(Array.isArray(p?.characters) ? p.characters : []),
+        conversationsRaw: sanitizeExportValue(Array.isArray(p?.conversations) ? p.conversations : []),
+        creatorInfo: sanitizeExportValue(p?.creator || null),
+
+        aiSource: buildAISource(p),
+        fieldInventory: getFieldInventory(p),
+        rawPlot: sanitizeExportValue(p),
+
+        createdAt: p.createdAt || null,
+        updatedAt: p.updatedAt || p.modifiedAt || null
+      }));
+
+    return {
+      schema: 'zeta-personal-private-plots',
+      schemaVersion: 2,
+      coreVersion: CORE_VERSION,
+      exportedAt: new Date().toISOString(),
+      zetaOrigin: location.origin,
+      count: plots.length,
+      plots
+    };
+  }
+
   function downloadJsonFile(filename, data) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -729,6 +894,28 @@
     const filename = `zeta_locked_public_plots_${stamp}.json`;
     downloadJsonFile(filename, payload);
     setStatus(`가둔 공캐 ${payload.count}개 JSON 저장 완료 · ${filename}`);
+  }
+
+  function exportPersonalPlots() {
+    if (loading) {
+      setStatus('비공개 플롯을 불러오는 중입니다. 완료 후 다시 눌러주세요.', true);
+      return;
+    }
+    if (!allPlots.length) {
+      setStatus('내보낼 데이터가 없습니다. 먼저 새로고침해 주세요.', true);
+      return;
+    }
+
+    const payload = buildPersonalExportPayload();
+    if (!payload.plots.length) {
+      setStatus('개인비캐가 없습니다.', true);
+      return;
+    }
+
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').replace(/\.\d{3}Z$/, 'Z');
+    const filename = `zeta_personal_private_plots_${stamp}.json`;
+    downloadJsonFile(filename, payload);
+    setStatus(`개인비캐 ${payload.count}개 JSON 저장 완료 · ${filename}`);
   }
 
   async function deleteSelected() {
@@ -925,6 +1112,7 @@
     });
 
     panel.querySelector('#zpe-export-locked').addEventListener('click', exportLockedPlots);
+    panel.querySelector('#zpe-export-personal').addEventListener('click', exportPersonalPlots);
     refreshBtn.addEventListener('click', loadAllPlots);
     deleteBtn.addEventListener('click', deleteSelected);
 
@@ -1911,6 +2099,7 @@
           <button id="zpe-select-all" class="zpe-soft-btn" type="button">결과 전체 선택</button>
           <button id="zpe-clear-all" class="zpe-soft-btn" type="button">선택 해제</button>
           <button id="zpe-export-locked" class="zpe-soft-btn" type="button">가둔 공캐 JSON</button>
+          <button id="zpe-export-personal" class="zpe-soft-btn" type="button">개인비캐 JSON</button>
           <button id="zpe-refresh" class="zpe-soft-btn" type="button">새로고침</button>
         </div>
 
