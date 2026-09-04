@@ -26,7 +26,7 @@
   const RUNTIME_EXECUTION_KEY =
     '__ZETA_PRIVATE_SAVER_RUNTIME_EXECUTION__';
   const RUNTIME_URL =
-    'https://zetdal-secret-saver.netlify.app/zeta-profile-private-saver.user.js';
+    'https://cdn.jsdelivr.net/gh/softly320/zeta-router@main/zeta-profile-private-saver.user.js';
   const CURRENT_SCRIPT = document.currentScript;
   const HAS_USERSCRIPT_API =
     typeof globalThis.GM_info !== 'undefined' ||
